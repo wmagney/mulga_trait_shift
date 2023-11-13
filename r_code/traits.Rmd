@@ -1,0 +1,686 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+set up
+
+
+
+
+```{r}
+
+library(lme4) #mixed effect linear models
+
+library(emmeans)
+
+library(tidyverse)
+
+library(readr)
+
+library(nlme) #non linear models
+
+library(ggpmisc)
+
+library(cowplot)
+
+library(multcomp)
+
+library(MASS)
+
+library(betareg)
+
+library(glmmTMB)
+```
+
+```{r}
+total_leaves <- read_csv("trait_data/leaves/total_leaves.csv")%>%
+  mutate( rainfall = factor(rainfall, levels = c("low", "moderate", "high")))
+
+
+summary(total_leaves)
+
+```
+
+
+#construct data set 
+
+```{r}
+trait_SLA <- total_leaves%>%
+  mutate(
+    tree_number = as.factor(tree_number),
+    #mm^2/mg
+    sla = leaf_area/leaf_mass,
+    volume = leaf_area * leaf_thickness
+    )%>%
+  arrange(tree_number)%>%
+  filter(!is.na(sla))%>%
+  aggregate(sla~tree_number + landform + volume + leaf_area + leaf_thickness  + leaf_mass + wood_density + rainfall,mean)
+
+summary(trait_SLA)
+```
+
+
+ylab("TCC on 212 "*mu~"m HDPE (mg TCC/"~m^2*") HDPE)")
+
+labs(x = bquote('x axis'~(ring(A)^2)), y = "y axis") 
+
+```{r}
+d.massvsarea <- trait_SLA%>%
+  ggplot(aes(rainfall, sla, fill = rainfall))+
+  geom_boxplot()+
+  scale_y_log10()+
+  ylab(bquote("SLA" ~ (cm^2 ~ mg^-1)))+
+  xlab("   ")+
+  ggtitle("a")+ 
+  theme_cowplot()+
+  theme(legend.position = "none")
+
+print(d.massvsarea)
+
+#ggsave("d.massvsarea.png")
+
+
+```
+
+```{r}
+
+t.rain.h <- trait_SLA%>%
+  filter(rainfall == "high")
+
+t.rain.m <- trait_SLA%>%
+  filter(rainfall == "moderate")
+
+t.rain.l <- trait_SLA%>%
+  filter(rainfall == "low")
+
+
+mean(t.rain.h$sla)
+
+mean(t.rain.m$sla)
+
+mean(t.rain.l$sla)
+
+```
+
+
+# visulise data set 
+
+```{r}
+trait_SLA%>%
+  ggplot(aes(sla, colour = rainfall))+
+  geom_histogram()
+
+trait_SLA%>%
+  ggplot(aes(rainfall, sla, colour = rainfall))+
+  geom_boxplot()
+
+
+trait_SLA%>%
+  ggplot(aes(leaf_mass, leaf_area, colour = rainfall))+
+  geom_point()+
+  geom_smooth(method = "lm",
+              se = T)+
+  scale_x_log10()+
+  scale_y_log10()
+
+trait_SLA%>%
+  ggplot(aes(wood_density, sla, colour = rainfall))+
+  geom_point()+
+  geom_smooth(method = "lm")
+
+```
+
+
+
+
+# SLA anova
+
+```{r}
+SLA.anova <- aov(log(sla) ~ rainfall + rainfall:landform, data = trait_SLA)
+summary(SLA.anova)
+
+TukeyHSD(SLA.anova)
+```
+
+
+
+
+
+## check assumptions
+
+
+```{r}
+
+qqnorm(residuals(SLA.anova), pch = 1, frame = FALSE)
+qqline(residuals(SLA.anova), col = "steelblue", lwd = 2)
+
+
+```
+
+
+```{r}
+scatter.smooth(residuals(SLA.anova) ~ fitted(SLA.anova))
+```
+
+
+## slope/intercept
+
+
+
+```{r}
+gunda_trait <- filter(trait_SLA, rainfall == "high")
+
+noco_trait <- filter(trait_SLA, rainfall == "moderate")
+
+sturt_trait <- filter(trait_SLA, rainfall == "low")
+
+```
+
+
+
+```{r}
+
+high_trait <- lm(log(leaf_area) ~ log(leaf_mass), data = gunda_trait)
+summary(high_trait)
+
+exp(-1.79816)
+
+```
+
+
+
+```{r}
+
+mod_trait <- lm(log(leaf_area) ~ log(leaf_mass), data = noco_trait)
+summary(mod_trait)
+
+exp(-2.68805)
+
+```
+
+
+
+```{r}
+
+low_trait <- lm(log(leaf_area) ~ log(leaf_mass), data = sturt_trait)
+summary(low_trait)
+
+exp(-2.8741)
+
+```
+
+
+
+
+
+
+# leaf thickness 
+
+
+```{r}
+
+l.thick<- trait_SLA%>%
+  ggplot(aes( rainfall,leaf_thickness, fill = rainfall))+
+  geom_boxplot()+
+  xlab("")+
+  scale_y_log10()+
+  ylab(bquote("thickness " (mm)))+
+  ggtitle("b")+
+  theme_cowplot()+
+  theme(legend.position = "none")
+  
+print(l.thick)    
+
+ggsave("l.thick.png")
+
+
+```
+
+
+```{r}
+
+mean(trait_SLA$leaf_thickness)
+
+mean(sturt_trait$leaf_thickness)
+mean(noco_trait$leaf_thickness)
+mean(gunda_trait$leaf_thickness)
+ 
+```
+
+```{r}
+
+thickness.aov <- aov(log(leaf_thickness) ~  rainfall  + landform + rainfall, data = trait_SLA)
+
+summary(thickness.aov)
+
+TukeyHSD(thickness.aov)
+
+```
+
+```{r}
+qqnorm(residuals(thickness.aov), pch = 1, frame = FALSE)
+qqline(residuals(thickness.aov), col = "steelblue", lwd = 2)
+
+```
+
+```{r}
+scatter.smooth(residuals(thickness.aov) ~ fitted(thickness.aov))
+```
+
+
+
+
+
+
+***indicates that at dryer sites leaf area to thickness relationship become negative. suggests that the biological constraints on mulga phyllode morphology are more restrictive in dryer environments leading to more homogenous phylode morphology***
+
+
+
+
+
+# leaf area 
+
+```{r}
+
+leaf_area <- trait_SLA%>%
+  ggplot(aes(rainfall, leaf_area, fill = rainfall))+
+  scale_y_log10()+
+  geom_boxplot()+
+  xlab("")+
+  ylab(bquote("leaf area " (cm^2)))+
+  ggtitle("c")+
+  theme_cowplot()+
+  theme(legend.position = "none")
+  
+  
+print(leaf_area)
+
+
+```
+
+```{r}
+
+mean(trait_SLA$leaf_area)
+
+mean(sturt_trait$leaf_area)
+mean(noco_trait$leaf_area)
+mean(gunda_trait$leaf_area)
+ 
+```
+
+```{r}
+
+leaf_area.aov <- aov(log(leaf_area) ~  rainfall + rainfall + landform, data = trait_SLA)
+
+summary(leaf_area.aov)
+
+TukeyHSD(leaf_area.aov)
+
+```
+
+```{r}
+qqnorm(residuals(leaf_area.aov), pch = 1, frame = FALSE)
+qqline(residuals(leaf_area.aov), col = "steelblue", lwd = 2)
+
+
+plot(leaf_area.aov, which = 2)
+
+```
+
+```{r}
+scatter.smooth(residuals(leaf_area.aov) ~ fitted(leaf_area.aov))
+```
+
+
+# wood density
+
+
+
+```{r}
+total_wood <- read_csv("~/Thesis/r_studio/trait_data/wood/total_wood.csv")%>%
+  mutate( rainfall = factor(rainfall, levels = c("low", "moderate", "high")))
+
+
+summary(total_wood)
+
+```
+
+
+```{r}
+
+wood_data <- total_wood%>%
+  mutate(
+    basal_area = (wood_thickness*0.5)^2*3.14159265359,
+    volume = basal_area * wood_length,
+    wood.dens = wood_mass/volume)
+
+summary(wood_data)
+
+```
+
+
+
+
+```{r}
+
+wood.density <- wood_data%>%
+  ggplot(aes(rainfall, wood.dens, fill = rainfall))+
+  geom_boxplot()+
+  scale_y_log10()+
+  ylab(bquote("wood density " (g ~ cm^-3)))+
+  theme_cowplot()+
+  xlab(" ")+
+  ggtitle("d")+
+  theme(legend.position = "none")
+
+
+print(wood.density)
+
+```
+
+
+
+```{r}
+
+wood.dens.aov <- aov(wood.dens ~ rainfall + landform%in%rainfall, data = wood_data)
+
+summary(wood.dens.aov)
+
+```
+
+
+
+
+
+
+
+```{r}
+
+
+mean(wood_data$wood.dens)
+
+```
+
+## check assumptions 
+```{r}
+
+qqnorm(residuals(wood.dens.aov), pch = 1, frame = FALSE)
+qqline(residuals(wood.dens.aov), col = "steelblue", lwd = 2)
+
+```
+
+
+
+```{r}
+scatter.smooth(residuals(wood.dens.aov) ~ fitted(wood.dens.aov))
+```
+
+
+
+# Wood vessel analysis
+
+```{r}
+#build data set 
+
+vessels <- read_csv("trait_data/vessel.csv")%>%
+  mutate(rainfalllow = ifelse (grepl ("STURT", name), "low", "moderate"),
+          rainfallhigh = ifelse (grepl ("GUNDA", name), "high", "moderate"),
+          landform = ifelse (grepl ("SHED", name), "shed", "acc"),
+          rainfall = ifelse(rainfalllow == "low", "low",
+                          ifelse(rainfallhigh == "high", "high", "moderate")),
+          rainfall = as.factor(rainfall),
+         landform = as.factor(landform),
+         length = as.numeric(length),
+         width = as.numeric(width),
+         rainfall = factor(rainfall, levels = c("low", "moderate", "high")))%>%
+  
+  #extract tree as a grouping factor from the name variable
+  
+  mutate(
+    tree = substr(name, start = 1, stop = 13))%>%
+  
+  #get log transformations of various variables
+  mutate(log.roundness = log(roundess),
+         log.area = log(area))
+ 
+  
+  f.vessels <- vessels%>% 
+    filter(, l_ratio > 0.20)%>%
+    filter(, roundess > 0.15)%>%
+    filter(, area < 3000)%>%
+    filter(, area > 60)%>%
+    filter(, width > 3)%>%
+     
+  #turn point values into area (pixel spacial resolution 1.17um across images on average with small variance (total range = 0.014um))
+  mutate(area = 1.17*area,
+         length = 1.17*length,
+         width = 1.17*width,
+         perimeter = 1.17*perimeter)
+
+
+  summary(vessels)
+
+
+```
+
+
+
+
+  
+
+
+## vessel area  
+
+
+```{r}
+#diamiter
+ggplot(f.vessels, aes(log.area, colour = rainfall)) +
+  geom_histogram()
+
+xylem_area <- ggplot( f.vessels, aes(rainfall, area, fill = rainfall))+
+  geom_boxplot()+
+  theme_cowplot()+
+  scale_y_log10()+
+  ylab(bquote("xylem area " (μm^2)))+
+  xlab("rainfall site")+
+  theme(legend.position = "none")
+
+print(xylem_area)
+
+#ggsave("xylem_area.png")
+```
+
+```{r}
+
+area.model <- lmer(log.area ~ rainfall + landform + (1|tree), REML = T, data = f.vessels)
+
+
+```
+
+
+
+```{r}
+
+
+qqnorm(residuals(area.model), pch = 1, frame = FALSE)
+qqline(residuals(area.model), col = "steelblue", lwd = 2)
+#plot(area.model, which = 2)
+
+
+```
+
+```{r}
+
+area.model.fit <- lmer(log.area ~ rainfall + landform + (1|tree), REML = FALSE, data = f.vessels)
+area.model.null <- lmer(log.area ~ landform + (1|tree), data = f.vessels)
+
+anova(area.model.null,area.model.fit,test = "LRT") 
+
+```
+
+
+```{r}
+pairs(emmeans(area.model.fit, ~ rainfall))
+
+```
+
+### determine effect size 
+
+```{r}
+
+h.vess <- filter(f.vessels, rainfall == "high")
+
+m.vess <- filter(f.vessels, rainfall == "moderate")
+
+l.vess <- filter(f.vessels, rainfall == "low")
+
+mean(h.vess$area)
+
+mean(m.vess$area)
+
+mean(l.vess$area)
+
+```
+
+# roundess
+
+
+```{r}
+#diamiter
+ggplot(f.vessels, aes( roundess, fill = rainfall)) +
+  geom_histogram()
+
+Roundness <- ggplot( f.vessels, aes(rainfall, roundess, fill = rainfall))+
+  geom_boxplot()+
+  theme_cowplot()+
+  scale_y_log10()+
+  ylab ("xylem roundness")+
+  xlab("rainfall site")+
+  theme(legend.position = "none")
+
+print(Roundness)
+
+#ggsave("Roundness.png")
+```
+
+
+#BETA DISTRIBUTION CONSIDER GLMM WITH CORRESPONDING LINKING FUNCTION.  
+
+# compare different link functions 
+
+```{r}
+summary(f.vessels)
+```
+
+
+
+```{r}
+
+gamma.glmm.roundness <- glmmTMB(roundess ~ rainfall + landform + (1|tree), data = f.vessels,family = Gamma())
+
+beta.glmm.roundness <- glmmTMB(roundess ~ rainfall + landform + (1|tree), data = f.vessels,family = beta_family())
+
+anova(gamma.glmm.roundness, beta.glmm.roundness, test = "LRT")
+
+```
+
+```{r}
+possion.glmm.roundness <- glmmTMB(roundess ~ rainfall + landform + (1|tree), data = f.vessels,family = poisson())
+
+anova(beta.glmm.roundness, possion.glmm.roundness, test = "LRT")
+```
+
+
+
+#compar to other models to check for differences in model fit
+
+```{r}
+
+lmem.roundness <- lmer(log.roundness ~ rainfall + landform + (1|tree), data = f.vessels)
+
+summary(lmem.roundness)
+
+tab_model(beta.glmm.roundness)
+
+```
+
+
+```{r}
+
+lmem.roundness <- lmer(log.roundness ~ rainfall + landform + (1|tree), data = f.vessels)
+
+beta.glmm.roundness <- glmmTMB(roundess ~ rainfall + landform + (1|tree), data = f.vessels,family = beta_family())
+
+# Compare the models using likelihood ratio test (LRT)
+LRT_result <- anova(lmem.roundness, beta.glmm.roundness)
+
+# Print the results
+AIC(beta.glmm.roundness, lmem.roundness)
+```
+
+
+
+
+
+
+```{r}
+
+scatter.smooth(residuals(lmem.roundness) ~ fitted(lmem.roundness))
+
+
+scatter.smooth(residuals(beta.glmm.roundness) ~ fitted(beta.glmm.roundness))
+
+
+```
+
+
+```{r}
+qqnorm(residuals(lmem.roundness), pch = 1, frame = FALSE)
+qqline(residuals(lmem.roundness), col = "steelblue", lwd = 2)
+```
+
+
+```{r}
+beta_residuals <- residuals(beta.glmm.roundness)
+
+hist(beta_residuals, breaks = 30)
+
+```
+
+
+```{r}
+residuals <- residuals(beta.glmm.roundness, type = "response")
+
+# Plot residuals
+plot(beta_residuals, xlab = "Index", ylab = "Residuals", main = "Beta Residual Plot")
+abline(h = 0, col = "red")
+```
+
+
+
+### test for the significace of rainfall 
+
+```{r}
+
+null.norm.roundess <- glmmTMB(roundess ~ landform + (1|tree), data = f.vessels, family =  beta_family())
+
+anova(null.norm.roundess, beta.glmm.roundness, test = "LRT")
+
+#roundness does not vary between sites
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+

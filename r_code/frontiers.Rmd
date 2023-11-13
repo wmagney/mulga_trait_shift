@@ -1,0 +1,318 @@
+---
+title: "SFA"
+output: html_notebook
+---
+
+## SFA
+
+
+
+```{r}
+
+#create frontier model. 
+self.thin <- sfa(log10(ave.biomass) ~ log10(subplot_density) * rainfall ,  data = plot_D2h)
+
+summary(self.thin, extraPar = T)
+
+# testing performance of model against OLS
+
+lrtest(self.thin)
+
+```
+# sigmaU coeeficeint indicates signifcance of the inneficency term. error decomposition means means the decomosition of the random error term into error and ineficency 
+
+
+#### assumptions
+
+```{r}
+scatter.smooth(residuals(self.thin) ~ fitted(self.thin))
+```
+
+```{r}
+qqnorm(residuals(self.thin), pch = 1, frame = FALSE)
+qqline(residuals(self.thin), col = "steelblue", lwd = 2)
+```
+
+```{r}
+# Extract the residuals from the model
+residuals <- residuals(self.thin)
+
+# Perform the ACF analysis
+ acf(residuals)
+
+
+```
+
+
+
+
+# combined approach 
+
+
+self.thin <- sfa(log10(biomass) ~ log10(subplot_density) * rainfall  ,  data = plot_D2h)
+
+
+## step 1 FIT LMEM WITH ONLY RANDOM EFFECTS
+```{r}
+
+self.thin.lme <- lmer(biomass ~  (1|subplot_density) * (1|rainfall) * (1|landform) + (1|plots), data = plot_D2h,  REML = T)
+
+summary(self.thin.lme)
+
+
+```
+
+```{r}
+scatter.smooth(residuals(self.thin.lme) ~ fitted(self.thin.lme))
+```
+
+
+
+
+
+
+## STEP 2 EXTRACT BLUP and ADD to data set
+
+
+
+
+```{r}
+
+#CALCULATE ESTIMATES AND VARIANCE FOR RANDOM EFFECTS
+STvarComp <- as.data.frame(VarCorr(self.thin.lme,comp = "vcov")) 
+
+#extract coeffient estimates for random effects
+
+ST.ran <- ranef(self.thin.lme)$plots
+ST.ran <- setNames(ST.ran, c("BLUPs"))
+
+#label plot numbers
+ST.ran<- ST.ran %>%
+  mutate(plots = 1:19)
+
+
+ST.stem_plots <- merge(plot_D2h, ST.ran, by = "plots", all.x = TRUE)
+
+print(ST.stem_plots)
+
+```
+
+
+
+
+
+## step 3 incorpurate random effects into SFA
+
+```{r}
+sfa_self_thin <- sfa(log10(biomass) ~ log10(subplot_density) * rainfall + landform + BLUPs, data = ST.stem_plots)
+
+summary(sfa_self_thin, extraPar = T)
+
+#compare to ordinary least squares 
+
+
+lrtest(sfa_self_thin)
+```
+
+## step 4 check assumptions
+```{r}
+scatter.smooth(residuals(sfa_self_thin) ~ fitted(sfa_self_thin))
+qqnorm(residuals(sfa_self_thin), pch = 1, frame = FALSE)
+qqline(residuals(sfa_self_thin), col = "steelblue", lwd = 2)
+```
+## step 5 compare effeicncy scores against normal SFA approach. 
+
+
+
+
+
+## maximizing biomass production
+
+```{r}
+
+#create frontier model. rainfall and landform are exogenous variables with landform nested within rainfall
+
+max.m2 <- sfa(log10(biomass.m2) ~ log10(subplot_density) * rainfall + landform, data = plot_D2h)
+
+summary(max.m2, extraPar = T)
+
+# testing performance of model against OLS
+
+lrtest(max.m2)
+
+```
+
+
+```{r}
+
+scatter.smooth(residuals(max.m2) ~ fitted(max.m2))
+
+```
+
+```{r}
+# Extract the residuals from the model
+residuals <- residuals(max.m2)
+
+# Perform the ACF analysis
+ acf(residuals)
+
+
+```
+
+
+
+```{r}
+qqnorm(residuals(max.m2), pch = 1, frame = FALSE)
+qqline(residuals(max.m2), col = "steelblue", lwd = 2)
+```
+
+
+
+
+
+
+
+
+
+## ploting frontiers
+
+```{r}
+# plotted self thining
+
+ggplot(stem_plots, aes(log(subplot_density), log(ave.AGB), colour = rainfall)) +
+  geom_point(aes(shape = factor(landform)))+
+  geom_abline(intercept = 3.147408, slope = 0.020039, linetype = "solid", color = "red", size = 1) +
+  geom_abline(intercept = 3.089888, slope = -0.456046, linetype = "solid", color = "dark green", size = 1) +
+  geom_abline(intercept = 0.70  , slope =   -1.1242880, linetype = "solid", color = "blue", size = 1)+
+  theme_cowplot()+
+  labs(x = "Subplot Density", y = "average tree biomass", color = "Rainfall", shape = "Landform")
+  
+
+
+```
+
+```{r}
+#change self thinning line plot scale to log 
+
+#start by defining the functions for each slope. us the coefficients in the above outputs.For raise e to the power of the intercept term to find normal scale intercept.Raise x to the slope to term define the slope of the curve. Functions are expected to be defined as a function of x and not as a formula.
+
+low_thin.fun <- function(x) {3.781* x^ -0.26900772}
+mod_thin.fun <- function(x) {21 * x^-0.456046}
+high_thin.fun <- function(x) {2.23* x^ -0.8166378}
+
+
+
+
+ggplot(stem_plots, aes(subplot_density,ave.AGB, colour = rainfall)) +
+  geom_point(aes(shape = factor(landform)))+
+  scale_y_log10()+
+  scale_x_log10()+
+  geom_function(fun = low_thin.fun, n = 127, colour = "red", size = 1)+
+  geom_function(fun = mod_thin.fun, n = 127, colour = "dark green", size = 1)+
+  geom_function( fun = high_thin.fun, n = 127, colour = "blue", size = 1)+
+    #ggtitle("c")+
+  ylab( bquote("mean tree biomass " (kg)))+
+  xlab( bquote( "tree density " (tree ~ m^-2)))
+
+  
+
+  
+```
+
+```{r}
+ggplot(plot_D2h, aes(biomass,subplot_density, colour = rainfall)) +
+  geom_point(aes(shape = factor(landform)))+
+  scale_y_log10()+
+  scale_x_log10()+
+  geom_function(fun = low_thin.fun, n = 127, colour = "red", size = 1)+
+  xlab( bquote("mean biomass " (kg)))+
+  ylab( bquote( "tree density " (tree ~ m^-2)))
+```
+
+
+
+
+
+
+
+```{r}
+#normal scale using function determined in the above chunk. 
+
+self.thining <- ggplot(stem_plots, aes(subplot_density, ave.AGB, colour = rainfall)) +
+  geom_point(aes(shape = factor(landform)))+
+  theme_cowplot()+
+  scale_x_log10()+
+  scale_y_log10()+
+  ylab( bquote("mean tree biomass " (kg)))+
+  xlab( bquote( "tree density " (tree ~ m^-2)))+
+  geom_function(fun = low_thin.fun, n = 127, colour = "red", size = 1)+
+  geom_function(fun = mod_thin.fun, n = 127, colour = "dark green", size = 1)+
+  geom_function( fun = high_thin.fun, n = 127, colour = "blue", size = 1)+
+  ggtitle("c")+
+  theme(axis.title=element_text(size=12),legend.position = "none")
+
+print(self.thining)
+```
+
+
+
+
+```{r}
+# plotted maximum biomass efficiency frontiers
+
+ggplot(stem_plots, aes(log(subplot_density), log(biomass.m2), colour = rainfall)) +
+  geom_point(aes(shape = factor(landform))) +
+  geom_abline(intercept = 2.268333, slope = 0.326692, linetype = "solid", color = "red", size = 1) +
+  geom_abline(intercept = 3.894589, slope = 0.808454, linetype = "solid", color = "dark green", size = 1) +
+  geom_abline(intercept = 1.750087  , slope = -0.088450 , linetype = "solid", color = "blue", size = 1) +
+  labs(x = "Subplot Density", y = "Biomass/m2", color = "Rainfall", shape = "Landform") +
+  theme_cowplot()
+ 
+
+```
+
+```{r}
+#change maximum potential biomass plot scale to log 
+
+#start by defining the functions for each slope. us the coefficients in the above outputs.For raise e to the power of the intercept term to find normal scale intercept.Raise x to the slope to term define the slope of the curve. Functions are expected to be defined as a function of x and not as a formula.
+
+low_max.fun <- function(x) {9.71 * x^0.3628}
+mod_max.fun <- function(x) {53.76 * x^0.808454}
+high_max.fun <- function(x) {5.0869 * x^ -0.1243}
+
+
+
+
+max.potent <- ggplot(stem_plots, aes(subplot_density,biomass.m2, colour = rainfall)) +
+  geom_point(aes(shape = factor(landform)))+
+  scale_y_log10()+
+  scale_x_log10()+
+  geom_function(fun = low_max.fun, n = 127, colour = "red", size = 1)+
+  geom_function(fun = mod_max.fun, n = 127, colour = "dark green", size = 1)+
+  geom_function( fun = high_max.fun, n = 127, colour = "blue", size = 1)+
+    #ggtitle("c")+
+  ylab( bquote("plot biomass " (kg ~ m^-2)))+
+  xlab( bquote( "tree density " (tree ~ m^-2)))+
+  theme_cowplot()+
+  ggtitle("d")+
+  theme(axis.title=element_text(size=12),
+        legend.position = "none")
+print(max.potent)
+
+```
+
+
+```{r}
+
+ggplot(stem_plots, aes(subplot_density, biomass.m2, colour = rainfall)) +
+  geom_point(aes(shape = factor(landform)))+
+  theme_cowplot()+
+  geom_function(fun = low_max.fun, n = 127, colour = "red", size = 1)+
+  geom_function(fun = mod_max.fun, n = 127, colour = "dark green", size = 1)+
+  geom_function( fun = high_max.fun, n = 127, colour = "blue", size = 1)+
+    #ggtitle("c")+
+  ylab( bquote("plot biomass " (kg ~ m^-2)))+
+  xlab( bquote( "tree density " (tree ~ m^-2)))+
+  xlim(0, 0.25)+
+  ylim(0, 10)
+```

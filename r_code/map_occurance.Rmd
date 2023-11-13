@@ -1,0 +1,232 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r}
+
+
+library("cowplot")
+library("googleway")
+library("ggplot2")
+library("ggrepel")
+library("ggspatial")
+library("sf")
+library("rnaturalearth")
+library("rnaturalearthdata")
+library("readr")
+library("ozmaps")
+library("sp")
+library("rgdal")
+library("raster")
+library("stars")
+
+```
+
+#read in spatial data (occurance/basmap) 
+
+```{r}
+
+#occurence data 
+mulga_occurrence <- read_csv("distribution_map/mulga_occurrence_data.csv")
+View(mulga_occurrence_data)
+
+world <- ne_countries(scale = "medium", returnclass = "sf")
+class(world)
+
+
+```
+
+
+
+
+
+
+
+# map occurence 
+```{r}
+
+ggplot(data = world)+
+  geom_sf()+
+  geom_point(data = mulga_occurrence, aes(x = Longitude, y = Latitude),
+             size = 2,
+             colour = "darkred")+
+  #coordinates for "boundry" of australia
+  coord_sf(xlim = c(110.0514, 156.3435), ylim = c(-10.100411, -38.532549),
+expand = FALSE)+
+  theme_cowplot()
+
+```
+
+
+```{r}
+
+aus_map <- ggplot(ozmap_states) + 
+  geom_sf() + 
+  coord_sf()+
+   #coordinates for "boundry" of australia
+   coord_sf(xlim = c(110.0514, 156.3435), ylim = c(-10.100411, -38.532549),
+expand = FALSE)+
+   theme_cowplot()+
+  ggtitle("a")
+
+print(aus_map)
+ggsave("aus_map.png")
+
+```
+
+
+
+
+
+```{r}
+
+occurence_map <- ggplot(ozmap_states) + 
+  geom_sf() + 
+  coord_sf()+
+   #coordinates for "boundry" of australia
+   geom_point(data = mulga_occurrence, aes(x = Longitude, y = Latitude),
+             size = 2,
+             colour = "darkred")+
+   coord_sf(xlim = c(110.0514, 156.3435), ylim = c(-10.100411, -38.532549),
+expand = FALSE)+
+   theme_cowplot()+
+  ggtitle("a")
+
+print(occurence_map)
+ggsave("occurance.png")
+
+```
+
+
+#download and view raster data 
+
+```{r}
+
+rain_ave_30 <- raster(paste0("rainfall_30.tif"))
+
+summary(rain_ave_30)
+
+
+```
+
+#calculate min and max values 
+
+```{r}
+
+rain_ave_30 <- setMinMax(rain_ave_30)
+
+rain_ave_30
+
+```
+
+```{r}
+
+plot(rain_ave_30,
+     main = "30 year rainfall average")
+
+```
+# cropp to shape of australia 
+
+
+```{r}
+rainfall_cropped <- mask(rain_ave_30, ozmap_states)
+
+
+new_rainfall
+```
+
+
+# turn into data frame for ggplot
+
+```{r}
+
+data.rain <- as.data.frame(rainfall_cropped, xy = T)
+
+```
+
+
+df <- st_as_sf(x = df,                         
+           coords = c("lon", "lat"),
+           crs = projcrs)
+
+
+
+
+#normal scael rainfall
+```{r}
+
+rainfall_map <- ggplot()+
+  #raster data 
+  geom_raster(data = data.rain , aes(x = x, y = y, fill = rainfall_30))+
+  #boarder vectors
+  geom_sf(fill = 'transparent', data = ozmap_states)+
+  #add Mulga occurrence
+  geom_point(data = mulga_occurrence, aes(x = Longitude, y = Latitude),
+             size = 2,
+             colour = "darkred")+
+   coord_sf(xlim = c( 140.3168, 153.9892), ylim = c(-37.71128, -27.82082),
+expand = FALSE)+
+   theme_cowplot()+
+  #set scale aesthetics. set limits and fill rest
+  scale_fill_viridis_c( name = "mm/y", direction = -1, limits = c(153, 500),oob = scales::squish)+
+  xlab("longitude")+
+  ylab("latitude")+
+  ggtitle("b")
+  
+print(rainfall_map)
+
+ggsave("rainfall_map.png")
+```
+
+
+
+
+
+
+
+
+
+#logscael rainfall 
+```{r}
+
+#creat breaks for the sceal 
+
+my_breaks = c(200, 400, 800, 1600)
+
+rainfall_map.log<- ggplot()+
+  #raster data 
+  geom_tile(data = data.rain, aes(x = x, y = y, fill = rainfall_30))+
+  #boarder vectors
+  geom_sf(fill = 'transparent', data = ozmap_states)+
+  #add Mulga occurrence
+  geom_point(data = mulga_occurrence, aes(x = Longitude, y = Latitude),
+             size = 2,
+             colour = "darkred")+
+   coord_sf(xlim = c( 140.3168, 153.9892), ylim = c(-37.71128, -27.82082),
+expand = FALSE)+
+   theme_cowplot()+
+  #set scale aesthetics. set limits and fill rest
+  scale_fill_viridis_c( name = "mm/y", direction = -1, trans = "log", breaks = my_breaks, label = my_breaks)+
+  xlab("longitude")+
+  ylab("latitude")+
+  ggtitle("b")
+  
+print(rainfall_map.log)
+
+ggsave("rainfall_map.log.png")
+```
+
+
+
+
+
+
+
+
+
+

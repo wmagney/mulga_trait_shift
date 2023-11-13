@@ -1,0 +1,1216 @@
+
+
+# STATs for Mulga trait shift paper 
+
+
+
+# set up
+
+```{r}
+
+library(lme4) #mixed effect linear models
+
+library(lmerTest)
+
+library(emmeans)
+
+library(tidyverse)
+
+library(readr)
+
+library(nlme)
+
+library(ggpmisc)
+
+library(cowplot)
+
+library(car)
+
+library(forcats)
+
+library(mgcv)
+
+library(glmmLasso)
+
+library (glmmTMB)
+
+library(sp)
+
+library(gstat)
+
+library(ape)
+
+```
+
+#INDIVIUDAL TREE LEVEL METRICS
+
+## build data sets
+
+### import/build data set
+
+
+
+```{r}
+total_plots <- read_csv("plot_data/total_plots.csv")%>%
+  mutate(
+   landform = as.factor(landform),
+
+    plots = as.factor(plots),
+   
+   subplot = as.factor(subplot),
+
+    rainfall = factor(rainfall, levels = c("low", "moderate" , "high")))
+
+summary(total_plots)
+```
+
+
+
+### calcuale basal area and summed biomass
+
+
+
+```{r}
+
+ #calculate basal area   
+  basal_area <- total_plots %>%
+  gather("d_10", "diamiter", starts_with ("d_"))%>%
+  mutate(basal_area = (diamiter*0.5)^2*3.14159265359)%>%
+  arrange(tree)%>%
+  filter(!is.na(diamiter))
+```
+
+### biomass estimates for individual trees
+
+
+```{r}
+  
+ # using the accacia allometric equation from feller 1980 we will calculate biomass for each tree based on a "stem by stem" analysis.
+# see "Review of Allometric Relationships for Estimating Woody Biomass for New South Wales, the Australian Capital Territory, Victoria, Tasmania and South Australia" (page 36)
+    D2H_model <- basal_area %>%
+   group_by(tree, height, landform, plots, rainfall, subplot, sub_plot_area, subplot_density, plot_density)%>%
+  summarise(basal_area = sum(basal_area),.groups = "drop")%>%
+      mutate(diamiter = (sqrt(basal_area/3.14159265359))*2,
+             dbh = (diamiter*0.798)-0.577,# tapering equation from Paul et al, "testing the generality of above ground ind_biomass allometry across plant functional types at the continent scale"
+             stem_log_biomass = log(1.9+ 424.9 *(dbh/100)^2 * (height/100)), #ensure units of measurement are converted to cm
+             stem_biomass = exp(stem_log_biomass),
+             branch_log_biomass = log(208) + log((dbh/100)^2 * (height/100)),
+             branch_biomass = exp(branch_log_biomass),
+             leave_log_biomass = log(8) + log((dbh/100)^2 * (height/100)),
+             leave_biomass = exp(leave_log_biomass))%>%
+      mutate(
+        biomass = stem_biomass + branch_biomass + leave_biomass,
+        log_biomass = log(biomass))
+
+```
+
+
+
+
+### filtered 
+
+```{r}
+#filter out smaller trees due to allometeric differences in juveniles
+
+f.D2H_model <- filter(D2H_model, diamiter > 2)
+
+
+```
+
+
+
+### allometric data with canopy volume
+
+```{r}
+
+allometry_total <- read_csv("allometry/allometry_total.csv")%>%
+ mutate(
+   landform = as.factor(landform),
+
+    rainfall = factor(rainfall, levels = c( "low", "moderate", "high")))
+
+summary(allometry_total)
+
+```
+
+
+
+### calculate basal area and canopy volume
+
+
+
+```{r}
+
+#calcualte basal area
+allo_basal <- allometry_total %>%
+  gather("d10", "diamiter", starts_with ("d10"))%>%
+  mutate(basal_area = (diamiter*0.5)^2*3.14159265359)%>%
+  arrange(tree)%>%
+  filter(!is.na(diamiter))
+
+
+```
+
+
+
+
+
+```{r}
+
+canopy_volume <- allo_basal%>%
+  group_by(tree, canopy_1, canopy_2, `95_Canopy`, tree_height, landform, rainfall)%>%
+  summarise(basal_area = sum(basal_area),.groups = "drop")%>%
+  mutate(canopy_height = ((tree_height - `95_Canopy`)/2),  # divide by 2 to get the semi-axis
+         canopy_length = canopy_1/2,
+         canopy_bredth = canopy_2/2,
+         canopy_volume = (3/4 * 3.141593 * canopy_height *canopy_bredth * canopy_length)/1000000,# volume of an ellipsoid. Divide by 1,000,000 to get m^3
+         log.tree.H = log(tree_height),
+         log.canopy.V = log(canopy_volume),
+         log.basal_area = log(basal_area))%>%
+  filter(!is.na(canopy_volume))%>%
+  filter(!is.na(log.canopy.V))
+
+  
+
+```
+
+
+```{r}
+
+summary(allo_basal)
+
+```
+
+
+
+
+## Individual tree level biomass (LMEM)
+
+```{r}
+
+final.ind.tree.fit <- lmer(log_biomass ~  rainfall  + (1|landform/plots/subplot), data = f.D2H_model, REML = T)
+
+summary(final.ind.tree.fit)
+
+ 
+```
+### assumptions
+
+```{r}
+qqnorm(residuals(final.ind.tree.fit), pch = 1, frame = FALSE)
+qqline(residuals(final.ind.tree.fit), col = "steelblue", lwd = 2)
+
+```
+
+
+```{r}
+scatter.smooth(residuals(final.ind.tree.fit) ~ fitted(final.ind.tree.fit))
+```
+
+
+```{r}
+# Extract the residuals from the model
+fin.tree.residuals <- residuals(final.ind.tree.fit)
+
+# Perform the ACF analysis
+ acf(fin.tree.residuals)
+```
+
+
+
+### dredging 
+
+```{r}
+# null vs fit
+
+final.ind.tree.fit <- lmer(log_biomass ~  rainfall + (1|landform/plots/subplot), data = f.D2H_model, REML = F)
+final.ind.tree.null <- lmer(log_biomass ~ (1|landform/plots/subplot), data = f.D2H_model, REML = F)
+
+anova(final.ind.tree.fit,final.ind.tree.null,test = "LRT")
+
+```
+
+### Hypothesis testing for ranomd effects
+
+```{r}
+#test if we need landform given we have plots as a random effect
+
+nBoot <- 1000
+lrStat <- rep(NA, nBoot)
+final.ind.tree.null <- lmer(log_biomass ~  rainfall + (1|plots/subplot) , data = f.D2H_model, REML = F) #null model
+final.ind.tree.fit <- lmer(log_biomass ~  rainfall + (1|landform/plots/subplot) , data = f.D2H_model, REML = F) # full model
+lrObs <- 2 * logLik(final.ind.tree.fit) - 2 * logLik(final.ind.tree.null) # observed test stat
+for (iBoot in 1:nBoot)
+{
+  f.D2H_model$logBiomassSim <- unlist(simulate(final.ind.tree.null)) # resampled data
+  bNull <- lmer(logBiomassSim ~ rainfall + (1 | plots/subplot), data = f.D2H_model, REML = F) # null model
+  bAlt <- lmer(logBiomassSim ~ rainfall + (1 | landform/plots/subplot), data = f.D2H_model, REML = F) # full model
+  lrStat[iBoot] <- 2 * logLik(bAlt) - 2 * logLik(bNull) # resampled test stat
+}
+mean(lrStat > lrObs) # P-value for test of plots effect
+```
+
+no evidence to include landform as a random effect
+
+```{r}
+#test if we need plots given we have subplots as a random effect
+
+nBoot <- 1000
+lrStat <- rep(NA, nBoot)
+final.ind.tree.null <- lmer(log_biomass ~  rainfall + (1|subplot) , data = f.D2H_model, REML = F) #null model
+final.ind.tree.fit <- lmer(log_biomass ~  rainfall + (1|plots/subplot) , data = f.D2H_model, REML = F) # full model
+lrObs <- 2 * logLik(final.ind.tree.fit) - 2 * logLik(final.ind.tree.null) # observed test stat
+for (iBoot in 1:nBoot)
+{
+  f.D2H_model$logBiomassSim <- unlist(simulate(final.ind.tree.null)) # resampled data
+  bNull <- lmer(logBiomassSim ~ rainfall + (1 |subplot), data = f.D2H_model, REML = F) # null model
+  bAlt <- lmer(logBiomassSim ~ rainfall + (1 |plots/subplot), data = f.D2H_model, REML = F) # full model
+  lrStat[iBoot] <- 2 * logLik(bAlt) - 2 * logLik(bNull) # resampled test stat
+}
+mean(lrStat > lrObs) # P-value for test of plots effect
+```
+
+
+evidence to include plots
+
+
+## Final individual level biomass model 
+
+
+```{r}
+
+final.ind.tree.fit <- lmer(log_biomass ~  rainfall  + (1|plots/subplot), data = f.D2H_model, REML = T)
+
+summary(final.ind.tree.fit)
+
+ 
+```
+
+
+
+```{r}
+pairs(emmeans(final.ind.tree.fit, ~  rainfall))
+```
+
+```{r}
+
+ind.biomass <- f.D2H_model %>%
+  ggplot(aes(rainfall, biomass, fill = rainfall))+
+  geom_boxplot(notch = F)+
+  scale_y_log10()+
+  ylab(bquote("biomass"(kg ~ tree^-1)))+
+  xlab(" ")+
+  ggtitle("d2h")+
+  theme_cowplot()+
+  theme(legend.position = "none",
+        axis.title=element_text(size=12))
+
+
+print(ind.biomass)
+```
+
+
+
+
+
+## Basal area to height (LMEM)
+
+
+
+```{r}
+#the interaction term (*) between log(basal_area) and rainfall allows the "height Vs basal areas" relationship to vary between levels of rainfall (or across sites). 
+
+final.height.basal.lm <- lmer(log(height) ~ log(basal_area) * rainfall + (1|landform/plots/subplot), data = f.D2H_model, REML = T)
+
+summary(final.height.basal.lm)
+
+```
+
+### assumptions
+```{r}
+qqnorm(residuals(final.height.basal.lm), pch = 1, frame = FALSE)
+qqline(residuals(final.height.basal.lm), col = "steelblue", lwd = 2)
+
+```
+
+
+```{r}
+scatter.smooth(residuals(final.height.basal.lm) ~ fitted(final.height.basal.lm))
+```
+
+
+
+
+
+```{r}
+vif(final.height.basal.lm)
+```
+
+
+
+```{r}
+# Extract the residuals from the model
+height.basal.residuals <- residuals(final.height.basal.lm)
+
+# Perform the ACF analysis
+ acf(height.basal.residuals)
+```
+
+
+### dredging
+
+```{r}
+# null vs fit
+
+final.height.basal.aov <- lmer(log(height) ~ log(basal_area) * rainfall + (1|landform/plots/subplot) , data = f.D2H_model, REML = F)
+final.height.null <- lmer(log(height) ~ log(basal_area) + (1|landform/plots/subplot), data = f.D2H_model, REML = F)
+
+anova(final.height.null,final.height.basal.aov,test = "LRT")
+
+```
+
+
+
+
+### hypothesis testing for random effects
+
+```{r}
+#test if we need landform given we have plots as a random effect
+
+nBoot <- 1000
+lrStat <- rep(NA, nBoot)
+final.height.basal.null <- lmer(log(height) ~ log(basal_area) * rainfall + (1|plots/subplot) , data = f.D2H_model, REML = F) #null model
+final.height.basal.aov <- lmer(log(height) ~ log(basal_area) * rainfall + (1|landform/plots/subplot) , data = f.D2H_model, REML = F) # full model
+lrObs <- 2 * logLik(final.height.basal.aov) - 2 * logLik(final.height.basal.null) # observed test stat
+for (iBoot in 1:nBoot)
+{
+  f.D2H_model$logHeightSim <- unlist(simulate(final.height.basal.null)) # resampled data
+  bNull <- lmer(logHeightSim ~ log(basal_area) * rainfall + (1 | plots/subplot), data = f.D2H_model, REML = F) # null model
+  bAlt <- lmer(logHeightSim ~ log(basal_area) * rainfall + (1 | landform/plots/subplot), data = f.D2H_model, REML = F) # full model
+  lrStat[iBoot] <- 2 * logLik(bAlt) - 2 * logLik(bNull) # resampled test stat
+}
+mean(lrStat > lrObs) # P-value for test of plots effect
+```
+
+
+```{r}
+#test if we need subplots given we have plots as a random effect
+
+nBoot <- 1000
+lrStat <- rep(NA, nBoot)
+final.height.basal.null <- lmer(log(height) ~ log(basal_area) * rainfall + (1|plots) , data = f.D2H_model, REML = F)
+final.height.basal.aov <- lmer(log(height) ~ log(basal_area) * rainfall + (1|plots/subplot) , data = f.D2H_model, REML = F) # full model
+lrObs <- 2 * logLik(final.height.basal.aov) - 2 * logLik(final.height.basal.null) # observed test stat
+for (iBoot in 1:nBoot)
+{
+  f.D2H_model$logHeightSim <- unlist(simulate(final.height.basal.null)) # resampled data
+  bNull <- lmer(logHeightSim ~ log(basal_area) * rainfall + (1 | plots), data = f.D2H_model, REML = F) # null model
+  bAlt <- lmer(logHeightSim ~ log(basal_area) * rainfall + (1 |plots/subplot), data = f.D2H_model, REML = F) # full model
+  lrStat[iBoot] <- 2 * logLik(bAlt) - 2 * logLik(bNull) # resampled test stat
+}
+mean(lrStat > lrObs) # P-value for test of plots effect
+```
+
+
+
+
+
+## Final basal area to height model 
+
+```{r}
+final.height.basal.lm <- lmer(log(height) ~ log(basal_area) * rainfall + (1|plots/subplot) , data = f.D2H_model, REML = T)
+
+summary(final.height.basal.lm)
+```
+
+
+```{r}
+pairs(emmeans(final.height.basal.lm, ~  rainfall))
+```
+
+```{r}
+basal.vs.heigh_plots <- f.D2H_model%>%
+  ggplot(aes(basal_area, height, colour = rainfall))+
+  geom_point(aes(shape = landform))+
+geom_smooth(method = "nls",
+              formula = y ~ c*x^z,
+             se = FALSE,
+             method.args = list(start = list(c=125, z=0.383739)))+
+  ylab("height (cm)")+
+  xlab(bquote("basal area " (cm^2)))+
+  xlim(c(NA, 1250))+
+  ggtitle("a")+
+  theme_cowplot()+
+  theme(axis.title=element_text(size=12), legend.position = "none")
+  
+
+print(basal.vs.heigh_plots)
+
+```
+
+
+## Tree height (LMEM)
+
+```{r}
+final.tree.height.lm <- lmer(log(height) ~  rainfall + (1|landform/plots/subplot), data = f.D2H_model, REML = T)
+
+summary(final.tree.height.lm)
+```
+
+
+### assumptions
+
+```{r}
+
+qqnorm(residuals(final.tree.height.lm), pch = 1, frame = FALSE)
+qqline(residuals(final.tree.height.lm), col = "steelblue", lwd = 2)
+
+
+```
+
+
+
+```{r}
+scatter.smooth(residuals(final.tree.height.lm) ~ fitted(final.tree.height.lm))
+```
+
+
+```{r}
+# Extract the residuals from the model
+residuals <- residuals(final.tree.height.lm)
+
+# Perform the ACF analysis
+ acf(residuals)
+```
+
+
+
+
+### dredging
+
+```{r}
+final.tree.height.lm <- lmer(log(height) ~ rainfall + (1|landform/plots/subplot) , data = f.D2H_model, REML = F)
+
+final.tree.height.null <- lmer(log(height) ~  (1|landform/plots/subplot) , data = f.D2H_model, REML = F)
+
+anova(final.tree.height.null,final.tree.height.lm,test = "LRT")
+```
+
+
+***rainfall not significant***
+
+
+
+
+## Canopy volume vs height (ANCOVA)
+
+
+
+```{r}
+
+final.canopy.height.fit <- lmer(log.canopy.V ~ log.tree.H + rainfall + (1|landform), data = canopy_volume, REML = T)
+
+summary(final.canopy.height.fit)
+
+```
+
+
+### assumptions
+```{r}
+qqnorm(residuals(final.canopy.height.fit ), pch = 1, frame = FALSE)
+qqline(residuals(final.canopy.height.fit ), col = "steelblue", lwd = 2)
+
+```
+
+
+```{r}
+scatter.smooth(residuals(final.canopy.height.fit ) ~ fitted(final.canopy.height.fit ))
+```
+
+
+```{r}
+# Extract the residuals from the model
+cv.residuals <- residuals(final.canopy.height.fit )
+
+# Perform the ACF analysis
+ acf(cv.residuals)
+```
+
+
+
+```{r}
+vif(final.canopy.height.fit)
+``
+```
+
+
+
+
+
+
+
+### dredging 
+
+
+```{r}
+# significance of rainfall
+
+final.canopy.height.fit <- lmer(log.canopy.V ~ log.tree.H + rainfall + (1|landform), data = canopy_volume, REML = F)
+final.canopy.height.null <- lmer(log.canopy.V ~ log.tree.H + (1|landform), data = canopy_volume, REML = T)
+
+anova(final.canopy.height.null,final.canopy.height.fit,test = "LRT")
+
+```
+
+```{r}
+# significance of height
+
+final.canopy.height.fit <- lmer(log.canopy.V ~ log.tree.H + rainfall + (1|landform), data = canopy_volume, REML = F)
+final.canopy.height.null <- lmer(log.canopy.V ~ rainfall + (1|landform), data = canopy_volume, REML = T)
+
+anova(final.canopy.height.null,final.canopy.height.fit,test = "LRT")
+
+```
+
+### structural sensitivity analysis
+
+
+```{r}
+# significance of interaction effect
+
+final.canopy.height.fit <- lmer(log.canopy.V ~ log.tree.H * rainfall + (1|landform), data = canopy_volume, REML = F)
+final.canopy.height.null <- lmer(log.canopy.V ~ log.tree.H + rainfall + (1|landform), data = canopy_volume, REML = T)
+
+anova(final.canopy.height.null,final.canopy.height.fit,test = "LRT")
+
+```
+
+***do not include interactive effect***
+
+
+
+### hypothesis testing for ranodm effect
+
+```{r}
+#test if we need landform as a random effect
+
+nBoot <- 1000
+lrStat <- rep(NA, nBoot)
+final.canopy.height.null <- aov(log.canopy.V ~ log.tree.H + rainfall, data = canopy_volume) #null w/o random effect
+final.canopy.height.fit <- lmer(log.canopy.V ~ log.tree.H + rainfall + (1|landform), data = canopy_volume, REML = F) # full model
+lrObs <- 2 * logLik(final.canopy.height.fit) - 2 * logLik(final.canopy.height.null) # observed test stat
+for (iBoot in 1:nBoot)
+{
+  canopy_volume$logCanopySim <- unlist(simulate(final.canopy.height.null)) # resampled data
+  bNull <- aov(logCanopySim ~ log.tree.H + rainfall, data = canopy_volume) # null model
+  bAlt <- lmer(logCanopySim ~ log.tree.H + rainfall + (1 |landform), data = canopy_volume, REML = F) # full model
+  lrStat[iBoot] <- 2 * logLik(bAlt) - 2 * logLik(bNull) # resampled test stat
+}
+mean(lrStat > lrObs) # P-value for test of landform effect
+```
+***no evidence to include landform***
+
+## Final Canopy Volume vs Hight model
+
+
+```{r}
+final.canopy.height.aov <- aov(log.canopy.V ~ log.tree.H + rainfall, data = canopy_volume)
+
+```
+
+
+
+```{r}
+vif(final.canopy.height.aov)
+```
+
+
+
+```{r}
+# Extract the residuals from the model
+cv.residuals <- residuals(final.canopy.height.aov)
+
+# Perform the ACF analysis
+ acf(cv.residuals)
+```
+
+```{r}
+final.canopy.height.aov <- aov(log.canopy.V ~ log.tree.H * rainfall, data = canopy_volume)
+
+Anova(final.canopy.height.aov, type="III") 
+
+```
+
+***non significant interaction = no change in slope***
+
+```{r}
+final.canopy.height.aov <- aov(log.canopy.V ~ log.tree.H + rainfall, data = canopy_volume)
+
+Anova(final.canopy.height.aov, type="III") 
+
+TukeyHSD(final.canopy.height.aov, "rainfall")
+```
+
+```{r}
+canopyvsheight <- canopy_volume%>%
+  ggplot( aes( tree_height, canopy_volume * 1000000, colour = rainfall))+
+  geom_point(aes(shape = landform))+
+  geom_smooth(method = "nls",
+              formula = y ~b +x^m,
+              se = F,
+              method.args = list(start = list(m=3, b=0)))+
+  ggtitle("b")+
+  xlab("height (m)")+
+  ylab(bquote("canopy volume  " (cm^3)))+
+  theme_cowplot()
+  theme(legend.position = "none",
+        axis.title=element_text(size=12))
+
+
+print(canopyvsheight)
+```
+
+
+
+## Canopy volume vs basal area (ANCOVA)
+
+
+
+```{r}
+
+final.canopy.basal.fit <- lmer(log.canopy.V ~ log.basal_area + rainfall + (1|landform), data = canopy_volume, REML = T)
+
+summary(final.canopy.basal.fit)
+```
+
+
+### assumptions 
+
+```{r}
+qqnorm(residuals(final.canopy.basal.fit ), pch = 1, frame = FALSE)
+qqline(residuals(final.canopy.basal.fit ), col = "steelblue", lwd = 2)
+
+```
+
+
+```{r}
+scatter.smooth(residuals(final.canopy.basal.fit ) ~ fitted(final.canopy.basal.fit ))
+```
+
+
+```{r}
+# Extract the residuals from the model
+cb.residuals <- residuals(final.canopy.basal.fit )
+
+# Perform the ACF analysis
+ acf(cb.residuals)
+```
+
+```{r}
+vif(final.canopy.basal.fit)
+```
+
+
+
+### dredging
+
+
+```{r}
+
+final.canopy.basal.fit <- lmer(log.canopy.V ~ log.basal_area + rainfall + (1|landform), data = canopy_volume, REML = F)
+
+final.canopy.basal.null <- lmer(log.canopy.V ~ log.basal_area + (1|landform), data = canopy_volume, REML = F)
+
+anova(final.canopy.basal.null,final.canopy.basal.fit,test = "LRT")
+```
+
+```{r}
+final.canopy.basal.null <- lmer(log.canopy.V ~ rainfall + (1|landform), data = canopy_volume, REML = F)
+
+anova(final.canopy.basal.null,final.canopy.basal.fit,test = "LRT")
+```
+***rainfall not significant!!***
+
+
+
+
+
+
+```{r}
+
+basalvscanopy <- canopy_volume%>%
+  ggplot( aes( basal_area, canopy_volume, colour = rainfall))+
+  geom_point(aes(shape = landform))+
+     geom_smooth(method = "nls",
+              formula = y ~ b + x^m,
+              se = FALSE,
+              method.args = list(start = list(b= 0.4660558, m = 1.13)))+
+  ylab(bquote("canopy volume " (m^3)))+
+  xlab(bquote("basal area " (cm^2)))+
+  ggtitle("c")+
+  theme_cowplot()+
+  theme(axis.title=element_text(size=12,face="bold"))+
+  theme(legend.position = "none")
+  
+
+
+ print(basalvscanopy)
+```
+
+
+
+
+
+
+# PLOT LEVEL METRICS 
+
+## build data set
+
+sub_plot_area, plots, plot_density, rainfall,landform
+
+```{r}
+
+#create subplot level statistics    
+  plot_D2h <- D2H_model%>%
+  group_by( subplot )%>%
+    summarise(
+      sub_plot_area = mean(sub_plot_area),
+      subplot_density = mean(subplot_density),
+      ave.biomass = mean(biomass),
+      diameter = mean(diamiter),
+      tot.biomass = sum(biomass),
+      stem_area = mean(3.1415/4*diamiter^2),
+      biomass.m2 = tot.biomass/sub_plot_area,
+      plots = first(plots),
+      plot_density = mean(plot_density),
+      rainfall = first(rainfall),
+      landform = first(landform))%>%
+  ungroup()%>%
+  mutate(
+    logbiomass.m2 = log(biomass.m2),
+    log.sub.dens = log(subplot_density))
+
+summary(plot_D2h)
+
+```
+
+
+```{r}
+stand_metrics <- plot_D2h %>% 
+  group_by( subplot, landform, sub_plot_area, plots, rainfall, subplot_density, plot_density)%>%
+  summarise(ave.biomass = mean(ave.biomass),
+            logbiomass.m2 = mean(logbiomass.m2),
+            log.sub.dens = mean(log.sub.dens),
+            biomass.m2 = mean(biomass.m2))
+  
+
+
+summary(stand_metrics)
+```
+
+
+```{r}
+#read in spatial co-ordinates 
+
+subplot_coordinates <- read_csv("locational_data/subplot_coordinates.csv") #GPS centroid for each plot (WSG84).
+
+summary(subplot_coordinates)
+
+summary(stand_metrics)
+
+```
+
+
+```{r}
+
+# bind the each co-ordinate to the relevant plot 
+
+coords <- subplot_coordinates%>%
+  rename(subplot = sub_name )%>%
+  mutate(subplot = as.factor(subplot))
+
+
+spatial_stand_metrics <- cbind(stand_metrics,coords)
+
+# class xcoord and ycoord as coordinates using the coordinates() function 
+
+coordinates(spatial_stand_metrics) <- ~ xcoord + ycoord
+
+summary(spatial_stand_metrics)
+```
+
+
+
+
+
+
+
+## Plot level biomass (LMEM) 
+
+
+
+```{r}
+
+#compare main effects to interactive model 
+
+final.plot.biomass.fit <- lmer(logbiomass.m2 ~ rainfall + (1|landform/plots), data = stand_metrics, REML = T)
+
+summary(final.plot.biomass.fit)
+
+```
+
+
+### assumptions
+
+```{r}
+qqnorm(residuals(final.plot.biomass.fit), pch = 1, frame = FALSE)
+qqline(residuals(final.plot.biomass.fit), col = "steelblue", lwd = 2)
+
+```
+
+
+```{r}
+scatter.smooth(residuals(final.plot.biomass.fit) ~ fitted(final.plot.biomass.fit))
+```
+
+
+```{r}
+# Extract the residuals from the model
+residuals <- residuals(final.plot.biomass.fit)
+
+# Perform the ACF analysis
+ acf(residuals)
+```
+
+### dredging 
+
+```{r}
+final.plot.biomass.fit <- lmer(logbiomass.m2 ~ rainfall +  (1|landform/plots), data = stand_metrics, REML = F)
+
+final.plot.biomass.null <- lmer(logbiomass.m2 ~ (1|landform/plots), data = stand_metrics, REML = F)
+
+anova(final.plot.biomass.null,final.plot.biomass.fit,test = "LRT")
+```
+
+
+***evidence to include rainfall***
+
+### hypothesis testing for random effects
+
+
+
+final.plot.biomass.fit lmer(logbiomass.m2 ~ rainfall +  (1|landform/plots), data = stand_metrics, REML = F)
+
+```{r}
+#test if we need landform given we have plots as a random effect
+
+nBoot <- 1000
+lrStat <- rep(NA, nBoot)
+final.plot.biomass.null <- lmer(logbiomass.m2 ~ rainfall +  (1|plots), data = stand_metrics, REML = F) #null w/o random effect
+final.plot.biomass.fit <- lmer(logbiomass.m2 ~  rainfall + (1|landform/plots), data = stand_metrics, REML = F) # full model
+lrObs <- 2 * logLik(final.plot.biomass.fit) - 2 * logLik(final.plot.biomass.null) # observed test stat
+for (iBoot in 1:nBoot)
+{
+  stand_metrics$logBiomassSim <- unlist(simulate(final.plot.biomass.null)) # resampled data
+  bNull <- lmer(logBiomassSim ~ rainfall +  (1|plots), data = stand_metrics, REML = F) # null model
+  bAlt <- lmer(logBiomassSim ~  rainfall + (1|landform/plots), data = stand_metrics, REML = F) # full model
+  lrStat[iBoot] <- 2 * logLik(bAlt) - 2 * logLik(bNull) # resampled test stat
+}
+mean(lrStat > lrObs) # P-value for test of landform effect
+```
+
+
+
+***no evidence to include landform***
+
+
+```{r}
+#test if we need plots as a random effect
+
+nBoot <- 1000
+lrStat <- rep(NA, nBoot)
+final.plot.biomass.null <- aov(logbiomass.m2 ~ rainfall, data = stand_metrics) #null w/o random effect
+final.plot.biomass.fit <- lmer(logbiomass.m2 ~  rainfall + (1|plots), data = stand_metrics, REML = F) # full model
+lrObs <- 2 * logLik(final.plot.biomass.fit) - 2 * logLik(final.plot.biomass.null) # observed test stat
+for (iBoot in 1:nBoot)
+{
+  stand_metrics$logBiomassSim <- unlist(simulate(final.plot.biomass.null)) # resampled data
+  bNull <- aov(logBiomassSim ~ rainfall, data = stand_metrics) # null model
+  bAlt <- lmer(logBiomassSim ~  rainfall + (1|plots), data = stand_metrics, REML = F) # full model
+  lrStat[iBoot] <- 2 * logLik(bAlt) - 2 * logLik(bNull) # resampled test stat
+}
+mean(lrStat > lrObs) # P-value for test of plots effect
+```
+
+***evidence to plots and a random effect*** 
+
+
+## Final Plot level biomass Model
+
+```{r}
+final.plot.biomass.fit <- lmer(logbiomass.m2 ~  rainfall + (1|plots), data = stand_metrics, REML = F)
+
+summary(final.plot.biomass.fit)
+```
+
+```{r}
+pairs(emmeans(final.plot.biomass.fit, ~  rainfall))
+```
+
+***sig diff between moderate and high, approaching significance (0.0566) for low and high***
+
+
+***model summary suggests the high rainfall category is different to the low rainfall category, but the estimated marginal means indicates that it is not?***
+
+```{r}
+stands_boimass <-stand_metrics %>%
+  ggplot(aes( rainfall, biomass.m2, fill = rainfall))+
+  geom_boxplot(notch = F)+
+  scale_y_log10()+
+  ylab(bquote("biomass "(kg ~ m^-2)))+
+  xlab( " d2h ")+
+  ggtitle("a")+
+  theme_cowplot()+
+  theme(legend.position = "none")
+
+print(stands_boimass)
+```
+
+
+
+
+## Stand density model (LMEM)
+
+
+```{r}
+final.density.fit <- lmer(log.sub.dens ~ rainfall + (1|landform/plots), data = stand_metrics, REML = F)
+
+summary(final.density.fit)
+```
+
+
+### assumptions
+
+
+```{r}
+qqnorm(residuals(final.density.fit), pch = 1, frame = FALSE)
+qqline(residuals(final.density.fit), col = "steelblue", lwd = 2)
+
+```
+
+
+```{r}
+scatter.smooth(residuals(final.density.fit) ~ fitted(final.density.fit))
+```
+
+
+```{r}
+# Extract the residuals from the model
+dens.residuals <- residuals(final.density.fit)
+
+# Perform the ACF analysis
+ acf(dens.residuals)
+ 
+```
+
+
+### dreddging 
+
+
+```{r}
+final.density.fit <- lmer(log.sub.dens ~ rainfall +  (1|landform/plots), data = stand_metrics, REML = F)
+
+final.density.null <- lmer(log.sub.dens ~ (1|landform/plots), data = stand_metrics, REML = F)
+
+anova(final.density.fit,final.density.null,test = "LRT")
+```
+
+***rainfall is significant***
+
+### hypothesis testing
+
+
+
+```{r}
+#test if we need landform given we have plots as a random effect
+
+nBoot <- 1000
+lrStat <- rep(NA, nBoot)
+final.density.null <- lmer(log.sub.dens ~ rainfall +  (1|plots), data = stand_metrics, REML = F) #null w/o random effect
+final.density.fit <- lmer(log.sub.dens ~  rainfall + (1|landform/plots), data = stand_metrics, REML = F) # full model
+lrObs <- 2 * logLik(final.density.fit) - 2 * logLik(final.density.null) # observed test stat
+for (iBoot in 1:nBoot)
+{
+  stand_metrics$logdensitySim <- unlist(simulate(final.density.null)) # resampled data
+  bNull <- lmer(logdensitySim ~ rainfall +  (1|plots), data = stand_metrics, REML = F) # null model
+  bAlt <- lmer(logdensitySim ~  rainfall + (1|landform/plots), data = stand_metrics, REML = F) # full model
+  lrStat[iBoot] <- 2 * logLik(bAlt) - 2 * logLik(bNull) # resampled test stat
+}
+mean(lrStat > lrObs) # P-value for test of landform effect
+```
+
+
+***no evidence to include landforms as a randome effect***
+
+
+
+```{r}
+#test if we need plots as a random effect
+
+nBoot <- 1000
+lrStat <- rep(NA, nBoot)
+final.density.null <- aov(log.sub.dens ~ rainfall, data = stand_metrics) #null w/o random effect
+final.density.fit <- lmer(log.sub.dens ~ rainfall +  (1|plots), data = stand_metrics, REML = F) # full model
+lrObs <- 2 * logLik(final.density.fit) - 2 * logLik(final.density.null) # observed test stat
+for (iBoot in 1:nBoot)
+{
+  stand_metrics$logdensitySim <- unlist(simulate(final.density.null)) # resampled data
+  bNull <- aov(log.sub.dens ~ rainfall, data = stand_metrics) # null model
+  bAlt <- lmer(logdensitySim ~  rainfall + (1|plots), data = stand_metrics, REML = F) # full model
+  lrStat[iBoot] <- 2 * logLik(bAlt) - 2 * logLik(bNull) # resampled test stat
+}
+mean(lrStat > lrObs) # P-value for test of plots effect
+```
+
+
+
+
+### change model structure to ANCOVA 
+
+```{r}
+final.density.aov <- aov(log.sub.dens ~ rainfall, data = spatial_stand_metrics)
+```
+
+
+### assumptions
+
+
+
+```{r}
+qqnorm(residuals(final.density.aov), pch = 1, frame = FALSE)
+qqline(residuals(final.density.aov), col = "steelblue", lwd = 2)
+
+```
+
+
+```{r}
+scatter.smooth(residuals(final.density.aov) ~ fitted(final.density.aov))
+```
+
+```{r}
+# Extract the residuals from the model
+dens.residuals.aov <- residuals(final.density.aov)
+
+# Perform the ACF analysis
+ acf(dens.residuals.aov)
+ 
+```
+
+
+***test if autocorelation is significant***
+
+```{r}
+spatial_stand_metrics$lagged_density <- lag(stand_metrics$log.sub.dens, 1)
+```
+
+```{r}
+final.density.lag.fit <- aov(log.sub.dens ~ rainfall + lagged_density, data = spatial_stand_metrics)
+
+Anova(final.density.lag.fit)
+
+coef(final.density.lag.fit)
+```
+
+***evidence of significant autocorrelation*** 
+
+
+### check for spatial_autocorrelation
+
+
+```{r}
+
+#add the residuals to the data set
+
+spatial_stand_metrics$Resid <- residuals(final.density.aov)
+
+
+bubble(spatial_stand_metrics, "Resid")
+
+```
+
+
+```{r}
+coords = cbind(spatial_stand_metrics$xcoord, spatial_stand_metrics$ycoords)
+w = fields:::rdist(coords)
+Moran.I(x = spatial_stand_metrics$log.sub.dens, w = w)
+```
+
+***not spatial auto_correlations***
+
+***despite the non-significance of plots as a random effect as determined by bootstrapping, the inclusion of this variable eliminates significant autocorrelation and therefore is included to allow the data to meet the assumption of dependence in linear modeling***
+
+
+## Final stand density model
+
+```{r}
+final.density.fit <- lmer(log.sub.dens ~ rainfall + (1|plots), data = stand_metrics, REML = F)
+
+
+pairs(emmeans(final.density.fit, ~ rainfall))
+```
+
+
+
+
+```{r}
+# Extract the residuals from the model
+dens.residuals.fit <- residuals(final.density.fit)
+
+# Perform the ACF analysis
+ acf(dens.residuals.fit)
+ 
+```
+
+
+## Average tree biomass VS tree density (LMEM)
+
+```{r}
+
+final.add.competition.model <- lmer(log.sub.dens ~ log(ave.biomass) + rainfall + (1|landform /plots), data = stand_metrics, REML = T)
+
+summary(final.add.competition.model)
+```
+
+### assumptions
+
+```{r}
+vif(final.add.competition.model)
+```
+
+
+```{r}
+biomass_rainfall <- plot_D2h %>%
+  ggplot(aes( rainfall, ave.biomass, fill = rainfall))+
+  geom_boxplot(notch = F)+
+  scale_y_log10()+
+  ylab("subplot mean biomass")+
+  xlab( " d2h ")+
+  ggtitle("a")+
+  theme_cowplot()+
+  theme(legend.position = "none")
+
+print(biomass_rainfall)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+

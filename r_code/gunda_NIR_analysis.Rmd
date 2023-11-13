@@ -1,0 +1,108 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+
+
+```{r}
+
+library(tidyverse)
+library(ggplot2)
+library(forecast)
+library('tseries')
+library(rio)
+```
+
+
+# construct data set
+```{r}
+gunda_bands <- read_csv("gunda_post_fieldwork/gunda_bands.csv")%>%
+    mutate(plot = as.factor(plot))
+
+gunda_nir <- gunda_bands%>%
+  aggregate(NIR~ year+ plot, mean,)
+
+gunda_red <- gunda_bands%>%
+  aggregate(red ~ year + plot, mean)
+
+gunda_red_NIR <- left_join(gunda_red, gunda_nir, by = c("year", "plot"))
+
+
+gunda_NDVI <- gunda_red_NIR%>%
+  mutate(
+    NDVI =  (NIR-red)/(NIR+red))
+
+summary(gunda_NDVI)
+
+view(gunda_NDVI)
+
+
+```
+
+
+
+```{r}
+plot2_NDVI%>%
+  ggplot(aes(year, NDVI))+
+  geom_line()+
+   geom_smooth(method = "lm",
+              se = F)
+    
+```
+
+
+
+
+
+# decomoposition for each plot 
+
+
+```{r}
+plot3_NDVI <- gunda_NDVI%>%
+  filter(plot == 3)
+```
+
+
+```{r}
+p3.multi_year <- ts(na.omit (plot3_NDVI$NDVI), frequency = 2)
+p3.decom = stl(p3.multi_year, s.window = "periodic")
+p3.deaseasonal_count <- seasadj(p3.decom)
+plot(p3.decom)
+```
+
+
+```{r}
+plot2_NDVI <- gunda_NDVI%>%
+  filter(plot == 2)
+```
+
+
+```{r}
+p2.multi_year <- ts(na.omit (plot2_NDVI$NDVI), frequency = 2)
+p2.decom = stl(p2.multi_year, s.window = "periodic")
+p2.deaseasonal_count <- seasadj(p2.decom)
+plot(p2.decom)
+```
+
+```{r}
+plot4_NDVI <- gunda_NDVI%>%
+  filter(plot == 4)
+```
+
+
+```{r}
+p4.multi_year <- ts(na.omit (plot4_NDVI$NDVI), frequency = 2)
+p4.decom = stl(p4.multi_year, s.window = "periodic")
+p4.deaseasonal_count <- seasadj(p4.decom)
+plot(p4.decom)
+```
+
+
+
+
+
+
+
+

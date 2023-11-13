@@ -1,0 +1,848 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+---
+title: "R Notebook"
+output:
+  html_document:
+    df_print: paged
+---
+
+# plots
+
+
+# set up
+
+```{r}
+
+library(lme4) #mixed effect linear models
+
+library(lmerTest)
+
+library(emmeans)
+
+library(tidyverse)
+
+library(readr)
+
+library(nlme)
+
+library(ggpmisc)
+
+library(cowplot)
+
+library(car)
+
+library(forcats)
+
+library(mgcv)
+
+library(glmmLasso)
+
+```
+
+```{r}
+total_plots <- read_csv("plot_data/total_plots.csv")%>%
+  mutate(
+   landform = as.factor(landform),
+
+    plots = as.factor(plots),
+   
+   subplot = as.factor(subplot),
+
+    rainfall = factor(rainfall, levels = c("low", "moderate" , "high")))
+
+summary(total_plots)
+```
+# build data set
+
+# calcuale basal area and summed biomass
+
+
+```{r}
+
+ #calculate basal area   
+  basal_area <- total_plots %>%
+  gather("d_10", "diamiter", starts_with ("d_"))%>%
+  mutate(basal_area = (diamiter*0.5)^2*3.14159265359)%>%
+  arrange(tree)%>%
+  filter(!is.na(diamiter))
+```
+
+#d2h model
+
+
+M(kg) = 34.4703 - 8.0671 DBH + 0.6589 DBH^2 (cm)
+
+```{r}
+  
+ # using the accacia allometric equation from feller 1980 we will calculate biomass for each tree based on a "stem by stem" analysis.
+# see "Review of Allometric Relationships for Estimating Woody Biomass for New South Wales, the Australian Capital Territory, Victoria, Tasmania and South Australia" (page 36)
+    D2H_model <- basal_area %>%
+   group_by(tree, height, landform, plots, rainfall, subplot, sub_plot_area, subplot_density, plot_density)%>%
+  summarise(basal_area = sum(basal_area),.groups = "drop")%>%
+      mutate(diamiter = (sqrt(basal_area/3.14159265359))*2,
+             dbh = (diamiter*0.798)-0.577,
+             stem_log_biomass = log(1.9+ 424.9 * (dbh/100)^2 * (height/100)),
+             stem_biomass = exp(stem_log_biomass),
+             branch_log_biomass = log(208) + log((dbh/100)^2 * (height/100)),
+             branch_biomass = exp(branch_log_biomass),
+             leave_log_biomass = log(8) + log((dbh/100)^2 * (height/100)),
+             leave_biomass = exp(leave_log_biomass))%>%
+      mutate(
+        biomass = stem_biomass + branch_biomass + leave_biomass,
+        log_biomass = log(biomass))
+
+```
+    
+
+#d2h plot level biomass
+
+```{r}
+
+    
+  plot_D2h <- D2H_model%>%
+  group_by( subplot, landform, sub_plot_area, plots, rainfall, subplot_density, plot_density)%>%
+    summarise(
+      ave.biomass = mean(biomass),
+      diameter = mean(diamiter),
+      tot.biomass = sum(biomass),
+      stem_area = mean(3.1415/4*diamiter^2),
+    biomass.m2 = tot.biomass/sub_plot_area)%>%
+  ungroup()%>%
+  mutate(
+    logbiomass.m2 = log(biomass.m2),
+    log.sub.dens = log(subplot_density),
+    plots = as.numeric(plots))
+
+summary(plot_D2h)
+
+```
+
+
+
+
+
+
+```{r}
+names(plot_D2h)
+```
+
+
+```{r}
+stand_metrics <- plot_D2h %>% 
+  group_by( subplot, landform, sub_plot_area, plots, rainfall, subplot_density, plot_density)%>%
+  summarise(ave.biomass = mean(ave.biomass),
+            logbiomass.m2 = mean(logbiomass.m2),
+            log.sub.dens = mean(log.sub.dens),
+            biomass.m2 = mean(biomass.m2))
+  
+
+
+summary(stand_metrics)
+```
+
+
+
+
+# combinded diameter only model 
+
+```{r}
+#combind basal area for multi stemmed trees for a "combined stem analysis" 
+ ind_biomass <- basal_area%>%
+  group_by(tree, height, landform, plots, rainfall, subplot, sub_plot_area, subplot_density, plot_density)%>%
+  summarise(basal_area = sum(basal_area),.groups = "drop")%>%
+  mutate(
+     #back tranform total_basal_area to diamiter 
+    diamiter = case_when( rainfall == "low" ~ ((sqrt(basal_area/3.14159265359))*2),
+                          rainfall == "moderate" ~ ((sqrt(basal_area/3.14159265359))*2),
+                          rainfall == "high" ~ ((sqrt(basal_area/3.14159265359))*2)*0.798)-0.577, # converting d10 to d130
+     # Equations taken from -> Paul et al, "testing the generality of above ground ind_biomass allometry across plant functional types at the continent scale" -> Fmulti "ln(AGB) = 2.474ln(D10)-2.757" used for lower rainfall sites (page 9)
+    logAGB = case_when(rainfall == 'low' ~ 2.474*log(diamiter)-2.757,
+                      rainfall == 'moderate' ~ 2.474*log(diamiter)-2.757,
+                      rainfall == 'high' ~ 2.220*log(diamiter)-1.693),
+    # correctional factors taken form relevant equations in respective papers. CF for high rainfall taken form average of Acacia trees paul and roxburgh 2013.
+    AGB = case_when( rainfall == 'low' ~ exp(logAGB)*1.0787,
+                     rainfall == 'moderate' ~ exp(logAGB)*1.0787,
+                     rainfall == 'high' ~ exp(logAGB)*1.0436))
+ 
+    
+ #plot level biomass
+plot_biomass <- ind_biomass%>%
+  aggregate(AGB ~ subplot + landform + sub_plot_area + plots + rainfall + subplot_density + plot_density, sum)%>%
+  mutate(
+    biomass.m2 = AGB/sub_plot_area,
+    logbiomass.m2 = log(biomass.m2),
+    log.sub.dens = log(subplot_density))
+
+```
+
+
+
+```{r}
+#combind basal area for multi stemmed trees for a "combined stem analysis" 
+ Tree_model <- basal_area%>%
+  group_by(tree, height, landform, plots, rainfall, subplot, sub_plot_area, subplot_density, plot_density)%>%
+  summarise(basal_area = sum(basal_area),.groups = "drop")%>%
+  mutate(
+     #back tranform total_basal_area to diamiter 
+    diamiter =  (((sqrt(basal_area/3.14159265359))*2)*0.798)-0.577,
+    logAGB = 2.220*log(diamiter)-1.693,
+    AGB = exp(logAGB)*1.0436)
+    
+ #plot level biomass
+tree_plot <- diamiter_model%>%
+  aggregate(AGB ~ subplot + landform + sub_plot_area + plots + rainfall + subplot_density + plot_density, sum)%>%
+  mutate(
+    biomass.m2 = AGB/sub_plot_area,
+    logbiomass.m2 = log(biomass.m2),
+    log.sub.dens = log(subplot_density))
+
+```
+
+#Paul Shrub
+
+```{r}
+
+#individual level
+
+paul_shrub <- basal_area%>%
+  group_by(tree, height, landform, plots, rainfall, subplot, sub_plot_area, subplot_density, plot_density)%>%
+  summarise(basal_area = sum(basal_area),.groups = "drop")%>%
+  mutate( 
+    diamiter = ((sqrt(basal_area/3.14159265359))*2),
+    p.logAGB = 2.474*log(diamiter)-2.757,
+    p.AGB = exp(p.logAGB)*1.0787)
+
+
+#plot level 
+    
+p.shrub_plots <- paul_shrub%>%
+  aggregate(p.AGB ~ subplot + landform + sub_plot_area + plots + rainfall + subplot_density + plot_density, sum)%>%
+  mutate(
+    biomass.m2 = p.AGB/sub_plot_area,
+    logbiomass.m2 = log(biomass.m2),
+    log.sub.dens = log(subplot_density))
+
+
+```
+
+```{r}
+summary(diamiter_model)
+```
+
+
+
+```{r}
+ summary(D2H_model)
+```
+
+
+
+```{r}
+ summary(ind_biomass)
+```
+
+
+
+
+```{r}
+isocline <- ind_biomass %>%
+  group_by(subplot,  landform, sub_plot_area, plots , rainfall)%>%
+  summarise(
+    
+    basal_area = sum(basal_area),
+    subplot.n = n(),
+    subplot_density = subplot.n / sub_plot_area[1],
+    ave.AGB = mean(AGB),
+    ) %>% ungroup()
+
+
+isocline$rainfall <-  factor(isocline$rainfall, 
+                             levels = c("low", "moderate" , "high"))
+
+
+summary(isocline)
+
+  
+```
+
+
+```{r}
+
+ind_biomass%>%
+  mutate(basal_area = as.numeric(basal_area))
+
+summary(ind_biomass)
+
+```
+
+
+
+```{r}
+
+summary(plot_biomass)
+
+```
+
+
+
+# filtering
+```{r}
+f.ind_biomass <- filter(ind_biomass, diamiter > 2)
+
+f.D2H_model <- filter(D2H_model, diamiter > 2)
+
+f.diamiter_model <- filter(diamiter_model, diamiter >2)
+
+```
+
+
+
+```{r}
+d2h.h.rain. <- filter(f.D2H_model, rainfall == "high")
+diam.h.rainf <- filter(ind_biomass, rainfall == "high")
+```
+
+
+
+
+```{r}
+
+#plot damiter measurements 
+
+#diamiter
+diam.h.rainf%>%
+ggplot( aes(x= AGB)) +
+  geom_histogram()+
+  ggtitle("diameter only")
+  
+
+d2h.h.rain.%>%
+  ggplot( aes(x = biomass))+
+  geom_histogram()+
+  ggtitle("d2h model")
+  
+```
+
+
+
+
+
+```{r}
+
+#plot biomass measurements 
+
+#biomass
+f.ind_biomass%>%
+ggplot(aes(x=AGB, colour = factor(rainfall))) +
+  geom_histogram( fill = "#69b3a2",
+                  alpha = 0.09,
+                  bins = 40)+
+  ggtitle("summed basal")+
+  scale_x_log10()+
+  theme_cowplot()+
+  theme(plot.title = element_text(size = 15))
+
+#D2h biomass model
+
+f.D2H_model %>%
+  ggplot( aes( x = biomass, colour = factor (rainfall)))+
+   geom_histogram( fill = "#69b3a2",
+                  alpha = 0.09,
+                  bins = 40)+
+  scale_x_log10()+
+  ggtitle("stem by stem ")+
+  theme_cowplot()+
+  theme(plot.title = element_text(size = 15))
+```
+
+
+```{r}
+
+#plot the ind_biomass dist
+
+#multistem
+
+ind_biomass%>%
+ggplot( aes(x=AGB, colour = factor(rainfall))) +
+  geom_histogram( fill = "#69b3a2",
+                  alpha = 0.09,
+                  bins = 40)+
+  scale_x_log10()+
+  ggtitle("log scale ind_biomass")+
+  theme_classic()+
+  theme(plot.title = element_text(size = 15))
+
+ind_biomass%>%
+  ggplot( aes(x=AGB, colour = factor(rainfall)))+
+            geom_histogram(bins = 40)+
+            theme_grey()+
+            ggtitle("Normal Scale")+
+     
+         theme(plot.title = element_text(size = 15))
+```
+
+
+# basal area and height 
+
+
+
+```{r}
+
+fb.d2H <- D2H_model%>%
+  filter(basal_area < 1450)
+summary(fb.d2H)
+
+```
+
+```{r}
+appendix.structure <- fb.d2H%>%
+  ggplot(aes(diamiter, height, colour = rainfall))+
+  geom_point(aes(shape = landform))+
+geom_smooth(method = "nls",
+              formula = y ~ c*x^z,
+             se = FALSE,
+             method.args = list(start = list(c=125, z=0.383739)))+
+  ylab("height (cm)")+
+  xlab(bquote("diameter " (cm)))+
+  #ggtitle("a")+
+  theme_cowplot()+
+  theme(axis.title=element_text(size=12))
+  
+
+print(appendix.structure)
+
+#ggsave("appendix.structure.png")
+
+```
+
+
+```{r}
+appendix.diam_height <- lmer(log(height) ~ log(diamiter) * rainfall + landform + (1|plots/subplot), data = f.D2H_model, REML = T)
+
+summary(appendix.diam_height)
+
+```
+
+
+
+```{r}
+qqnorm(residuals(appendix.diam_height), pch = 1, frame = FALSE)
+qqline(residuals(appendix.diam_height), col = "steelblue", lwd = 2)
+
+```
+
+```{r}
+scatter.smooth(residuals(appendix.diam_height) ~ fitted(appendix.diam_height))
+```
+
+
+
+
+```{r}
+# null vs fit
+
+appendix.diam_height.anova <- lmer(log(height) ~ log(diamiter) * rainfall + landform +  (1|plots/subplot) , data = f.D2H_model, REML = F)
+appendix.diam_height.null <- lmer(log(height) ~ log(diamiter) + landform + (1|plots/subplot), data = f.D2H_model, REML = F)
+
+anova(appendix.diam_height.null,appendix.diam_height.anova,test = "LRT")
+
+```
+
+
+
+
+```{r}
+#differences in slope/ineraction effects
+
+anova(appendix.diam_height.anova)
+
+
+```
+
+
+```{r}
+#difference in intercept between high and other two sites
+
+ pairs(emmeans(appendix.diam_height, ~ rainfall*diamiter))
+```
+
+
+```{r}
+#difference in intercept between high and other two sites
+
+ pairs(emmeans(appendix.diam_height.anova, ~ rainfall))
+```
+
+
+
+# standardized biomass esitamtes 
+
+
+
+```{r}
+exp(2.757)
+
+log(15.75251)
+
+
+```
+
+
+```{r}
+
+
+#model calibration 
+
+#general model is calibrated on "species-specific" fitted model. We should calibrate this at the low rainfall site when hight is the lowest, and will have the least effect on the biomass estimates. 
+
+# for species specific model.............AGB = a1 * D^b (b = 2.474), (a1 = 15.75251)
+
+# for the general model .................AGB = a2 * (D^2*H)
+
+# therefore .............................a1 + D^b = a2 * (D^2*H)
+
+# for a2 ................................a2 = a1 * D^b /(D^2*H)
+
+# to calibrate this on the low rainfall site, apply this transformation "a1 + D^b/((D^2*H)^c/100)" at the low rainfall site. The average will produce a1.Given, a1, a2 can be calibrated.THis will be the intercepts for general model.
+
+
+ calibration_DF <- basal_area %>%
+   group_by(tree, height, landform, plots, rainfall, subplot, sub_plot_area, subplot_density, plot_density)%>%
+  summarise(basal_area = sum(basal_area),.groups = "drop")%>%
+      mutate(diamiter = (sqrt(basal_area/3.14159265359))*2, #calculated diameter form summed basal area
+             a2 = (-1.9 + 15.75251 * diamiter^2.474)/(diamiter^2 * height)) # transformation taken form above equation 
+
+summary(calibration_DF)
+
+             
+
+```
+
+
+
+
+
+
+
+
+```{r}
+# determine the mean value of a2 at the low rainfall site 
+
+l.rain. <- filter(calibration_DF, rainfall != "high")
+
+low.rain <- filter(l.rain., rainfall != "moderate")
+
+summary(low.rain) # mean a2 = 0.12677
+```
+
+~ 2.474*log(diamiter)-2.757
+
+
+```{r}
+# new equation is AGB = 0.12709   * D^2 * (H)
+# D and H are in meters in the equation but centimeters in data set
+
+cal_gen <- basal_area %>%
+   group_by(tree, height, landform, plots, rainfall, subplot, sub_plot_area, subplot_density, plot_density)%>%
+  summarise(basal_area = sum(basal_area),.groups = "drop")%>%
+      mutate(diamiter = (sqrt(basal_area/3.14159265359))*2,
+             dbh = (diamiter*0.798)-0.577,     #scaling factor to turn d10 to dbh 
+             g.logAGB = log(1.9 + 0.12677 * ((dbh)^2 * (height))/100),
+             g.AGB = exp(g.logAGB))
+
+summary(cal_gen)
+
+```
+
+
+```{r}
+
+cal_gen_plots <- cal_gen%>%
+    group_by( subplot, landform, sub_plot_area, plots, rainfall, subplot_density, plot_density)%>%
+    summarise(
+      ave.biomass = mean(g.AGB),
+      diameter = mean(diamiter),
+      tot.biomass = sum(g.AGB),
+      stem_area = mean(3.1415/4*diamiter^2),
+    biomass.m2 = tot.biomass/sub_plot_area)%>%
+  ungroup()%>%
+  mutate(
+    logbiomass.m2 = log(biomass.m2),
+    log.sub.dens = log(subplot_density),
+    plots = as.numeric(plots))
+
+```
+
+
+
+## filtering
+```{r}
+f.cal_gen <- filter(cal_gen, diamiter > 2)
+
+f.paul_shrub <- filter(paul_shrub, diamiter > 2)
+```
+
+
+# VISUAL COMPARISON 
+
+```{r}
+
+#comparison of stand level biomass
+
+
+p.stand<- p.shrub_plots%>%
+  ggplot(aes(rainfall, biomass.m2, fill = rainfall))+
+  geom_boxplot(notch = F)+
+  scale_y_log10()+
+  ylab(bquote("biomass "(kg ~ m^-2)))+
+  xlab( " Mulga specific stand level ")+
+  #ggtitle("tree")+
+  theme_cowplot()+
+  theme(legend.position = "none")
+print(p.stand)
+
+
+g.stand <- cal_gen_plots%>%
+  ggplot(aes(rainfall, biomass.m2, fill = rainfall))+
+  geom_boxplot(notch = F)+
+  scale_y_log10()+
+  ylab(bquote(""))+
+  xlab( " General stand level ")+
+  #ggtitle("tree")+
+  theme_cowplot()+
+  theme(legend.position = "none")
+print(g.stand)
+
+```
+
+
+
+```{r}
+# comparison of individual tree bioamss 
+
+shrub_ind_dist <- paul_shrub%>%
+  ggplot( aes(p.AGB, fill = rainfall ))+
+  geom_histogram()+
+  ggtitle("Mulga specific")+
+  xlim(c(NA,1000))+
+  ylim(c(NA, 1000))+
+  guides(fill="none")+
+  xlab("Biomass in kg")+
+  theme_cowplot()
+print(shrub_ind_dist)
+
+
+tree_ind_dist <- cal_gen%>%
+  ggplot( aes(g.AGB, fill = rainfall ))+
+  geom_histogram()+
+  ggtitle("General equation")+
+  xlim(c(NA, 1000))+
+  ylim(c(NA, 1000))+
+  guides(fill="none")+
+  xlab(" Biomass in kg ")+
+  theme_cowplot()
+print(tree_ind_dist)
+
+
+
+```
+
+
+
+
+
+
+
+```{r}
+#plot damiter measurements 
+
+#diamiter
+diam.h.rainf%>%
+ggplot( aes(x= AGB)) +
+  geom_histogram()+
+  ggtitle("diameter only")
+  
+
+d2h.h.rain.%>%
+  ggplot( aes(x = biomass))+
+  geom_histogram()+
+  ggtitle("d2h model")
+```
+
+
+
+
+
+
+```{r}
+paul.h.rain <- filter(f.paul_shrub, rainfall == "high")
+gen.h.rainf <- filter(f.cal_gen, rainfall == "high")
+```
+
+
+```{r}
+paul.h.rain%>%
+    ggplot( aes(p.AGB))+
+  geom_histogram()+
+  ggtitle("shrub")
+
+
+gen.h.rainf%>%
+  ggplot( aes(g.AGB))+
+  geom_histogram()+
+  ggtitle("d2h")
+
+
+```
+
+
+
+
+
+
+
+```{r}
+
+plot_grid(shrub_ind_dist, tree_ind_dist, rel_widths = c(1,1))
+
+ggsave("dist_comparison.png", width = 12, height =5)
+  
+```
+
+
+# kolomogrov-smirnov test (compare distributions)
+
+## create vectors 
+
+```{r}
+# extract biomass as a vector form the paul and genneral DFs
+
+
+paul.bio <- f.paul_shrub$p.AGB
+gen.bio <- f.cal_gen$g.AGB 
+
+
+```
+
+
+
+
+## ks.test 
+
+```{r}
+ks.test(gen.bio, paul.bio)
+```
+
+
+
+# Largest 20% comparison
+
+
+```{r}
+
+# paul 
+paul_20 <- f.paul_shrub %>%
+  arrange(desc(p.AGB)) %>%       
+  mutate(rank = row_number()) %>%
+  filter(rank <= n() * 0.2) %>%
+  select(-rank)                           
+
+print(paul_20)
+
+
+```
+
+
+
+```{r}
+# general 
+
+gen_20 <- f.cal_gen %>%
+  arrange(desc(g.AGB)) %>%       
+  mutate(rank = row_number()) %>%
+  filter(rank <= n() * 0.2) %>%
+  select(-rank)                           
+
+print(gen_20)
+
+
+```
+
+## compare totals 
+
+
+```{r}
+
+paul_20_total <- sum(paul_20$p.AGB)
+
+gen_20_total <- sum(gen_20$g.AGB)
+
+
+print(paul_20_total)
+
+print(gen_20_total)
+
+```
+
+## compare percentages 
+
+```{r}
+total_paul <- sum(f.paul_shrub$p.AGB)
+
+total_gen <- sum(f.cal_gen$g.AGB)
+
+print(total_paul)
+
+print(total_gen)
+```
+
+```{r}
+paul_20_percentage <- 55733.43/84314.47
+
+gen_20_percentage <- 90028.48/137332.2
+
+print(paul_20_percentage)
+
+print(gen_20_percentage)
+
+
+```
+
+
+## comparative make up 
+
+```{r}
+high_paul_20 <-  filter(paul_20, rainfall == "high")
+
+high_gen_20 <- filter(gen_20, rainfall == "high")
+
+
+print(high_paul_20)
+
+print(high_gen_20)
+```
+
+
+```{r}
+69/354
+
+128/354
+```
+
+
+```{r}
+
+plot_grid(p.stand, g.stand, rel_widths = c(1.1,1))
+
+ggsave("standlevelcomparison.png", width = 12, height =4)
+  
+```
+
+
+
+
+
