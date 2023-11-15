@@ -1,5 +1,3 @@
-
-
 # STATs for Mulga trait shift paper 
 
 
@@ -40,9 +38,130 @@ library(gstat)
 
 library(ape)
 
+library(ggpmisc)
+
+library(multcomp)
+
+library(MASS)
+
+library(betareg)
+
+library(glmmTMB)
+
 ```
 
-#INDIVIUDAL TREE LEVEL METRICS
+
+# TRAIT LEVEL METRICS
+
+
+```{r}
+#Plant vessel's Data
+
+#build data set 
+
+vessels <- read_csv("trait_data/vessel.csv")%>%
+  mutate(rainfalllow = ifelse (grepl ("STURT", name), "low", "moderate"),
+          rainfallhigh = ifelse (grepl ("GUNDA", name), "high", "moderate"),
+          landform = ifelse (grepl ("SHED", name), "shed", "acc"),
+          rainfall = ifelse(rainfalllow == "low", "low",
+                          ifelse(rainfallhigh == "high", "high", "moderate")),
+          rainfall = as.factor(rainfall),
+         landform = as.factor(landform),
+         length = as.numeric(length),
+         width = as.numeric(width),
+         rainfall = factor(rainfall, levels = c("low", "moderate", "high")))%>%
+  
+  #extract tree as a grouping factor from the name variable
+  
+  mutate(
+    tree = substr(name, start = 1, stop = 13))%>%
+  
+  #get log transformations of various variables
+  mutate(log.roundness = log(roundess),
+         log.area = log(area))
+ 
+  
+  f.vessels <- vessels%>% 
+    filter(, l_ratio > 0.20)%>%
+    filter(, roundess > 0.15)%>%
+    filter(, area < 3000)%>%
+    filter(, area > 60)%>%
+    filter(, width > 3)%>%
+     
+  #turn point values into area (pixel spacial resolution 1.17um across images on average with small variance (total range = 0.014um))
+  mutate(area = 1.17*area,
+         length = 1.17*length,
+         width = 1.17*width,
+         perimeter = 1.17*perimeter)
+
+
+  summary(vessels)
+
+
+```
+
+
+```{r}
+
+#leaf data 
+
+total_leaves <- read_csv("trait_data/leaves/total_leaves.csv")%>%
+  mutate( rainfall = factor(rainfall, levels = c("low", "moderate", "high")))
+
+
+summary(total_leaves)
+
+```
+```{r}
+trait_SLA <- total_leaves%>%
+  mutate(
+    tree_number = as.factor(tree_number),
+    #mm^2/mg
+    sla = leaf_area/leaf_mass,
+    volume = leaf_area * leaf_thickness
+    )%>%
+  arrange(tree_number)%>%
+  filter(!is.na(sla))%>%
+  aggregate(sla~tree_number + landform + volume + leaf_area + leaf_thickness  + leaf_mass + wood_density + rainfall,mean)
+
+summary(trait_SLA)
+```
+
+```{r}
+# Wood density data
+
+total_wood <- read_csv("~/Thesis/r_studio/trait_data/wood/total_wood.csv")%>%
+  mutate( rainfall = factor(rainfall, levels = c("low", "moderate", "high")))
+
+
+summary(total_wood)
+
+```
+
+
+```{r}
+
+wood_data <- total_wood%>%
+  mutate(
+    basal_area = (wood_thickness*0.5)^2*3.14159265359,
+    volume = basal_area * wood_length,
+    wood.dens = wood_mass/volume)
+
+summary(wood_data)
+
+```
+
+
+
+## Vessel area model (GLMM)
+
+
+
+
+
+
+
+# INDIVIUDAL TREE LEVEL METRICS
 
 ## build data sets
 
@@ -64,6 +183,16 @@ total_plots <- read_csv("plot_data/total_plots.csv")%>%
 summary(total_plots)
 ```
 
+
+
+```{r}
+total_wood <- read_csv("~/Thesis/r_studio/trait_data/wood/total_wood.csv")%>%
+  mutate( rainfall = factor(rainfall, levels = c("low", "moderate", "high")))
+
+
+summary(total_wood)
+
+```
 
 
 ### calcuale basal area and summed biomass
@@ -1027,7 +1156,7 @@ anova(final.density.fit,final.density.null,test = "LRT")
 
 ***rainfall is significant***
 
-### hypothesis testing
+### hypothesis testing for random effects
 
 
 
@@ -1172,7 +1301,29 @@ dens.residuals.fit <- residuals(final.density.fit)
 ```
 
 
-## Average tree biomass VS tree density (LMEM)
+
+```{r}
+
+final.tree.density <- stand_metrics%>%
+  
+  ggplot(aes(rainfall, subplot_density, fill = rainfall))+
+  geom_boxplot()+
+  scale_y_log10()+
+  ylab(bquote("tree density "(trees ~ m^-2)))+
+  xlab(" ")+
+  ggtitle("b")+
+  theme_cowplot()+
+  theme(legend.position = "none")
+
+
+print(final.tree.density)
+```
+
+
+
+
+
+## Competition model (LMEM)
 
 ```{r}
 
@@ -1187,20 +1338,132 @@ summary(final.add.competition.model)
 vif(final.add.competition.model)
 ```
 
+```{r}
+# Extract the residuals from the model
+ave.treebio.residuals.fit <- residuals(final.add.competition.model)
+
+# Perform the ACF analysis
+ acf(ave.treebio.residuals.fit)
+ 
+```
+
+
 
 ```{r}
-biomass_rainfall <- plot_D2h %>%
-  ggplot(aes( rainfall, ave.biomass, fill = rainfall))+
-  geom_boxplot(notch = F)+
-  scale_y_log10()+
-  ylab("subplot mean biomass")+
-  xlab( " d2h ")+
-  ggtitle("a")+
-  theme_cowplot()+
-  theme(legend.position = "none")
-
-print(biomass_rainfall)
+scatter.smooth(residuals(final.add.competition.model) ~ fitted(final.add.competition.model))
 ```
+
+
+
+### dredging
+
+```{r}
+# test significance of rainfall 
+
+final.rainfall.competition.model <- lmer(log.sub.dens ~ log(ave.biomass) + rainfall + (1|landform/plots), data = stand_metrics, REML = F)
+
+final.rainfall.competition.null <- lmer(log.sub.dens ~ log(ave.biomass) + (1|landform/plots), data = stand_metrics, REML = F)
+
+anova(final.rainfall.competition.null, final.rainfall.competition.model)
+
+```
+
+
+```{r}
+# significance of ave.biomass 
+
+
+final.rainfall.competition.null <- lmer(log.sub.dens ~  rainfall + (1|landform/plots), data = stand_metrics, REML = F)
+
+anova(final.rainfall.competition.null, final.rainfall.competition.model)
+
+
+```
+
+
+### hypothesis testing for random effects 
+
+
+
+final.rainfall.competition.model <- lmer(log.sub.dens ~ log(ave.biomass) + rainfall + (1|landform/plots), data = stand_metrics, REML = F)
+
+
+```{r}
+#test if we need landform given we have plots as a random effect
+
+nBoot <- 1000
+lrStat <- rep(NA, nBoot)
+final.rainfall.compeition.null <- lmer(log.sub.dens ~ log(ave.biomass) + rainfall + (1|plots), data = stand_metrics, REML = F) #null w/o random effect
+final.final.competition.model <- lmer(log.sub.dens ~  log(ave.biomass) + rainfall + (1|landform/plots), data = stand_metrics, REML = F) # full model
+lrObs <- 2 * logLik(final.final.competition.model) - 2 * logLik(final.rainfall.compeition.null) # observed test stat
+for (iBoot in 1:nBoot)
+{
+  stand_metrics$logDensitySim <- unlist(simulate(final.rainfall.compeition.null)) # resampled data
+  bNull <- lmer(logDensitySim ~ log(ave.biomass) + rainfall +  (1|plots), data = stand_metrics, REML = F) # null model
+  bAlt <- lmer(logDensitySim ~ log(ave.biomass) + rainfall + (1|landform/plots), data = stand_metrics, REML = F) # full model
+  lrStat[iBoot] <- 2 * logLik(bAlt) - 2 * logLik(bNull) # resampled test stat
+}
+mean(lrStat > lrObs) # P-value for test of landform effect
+```
+
+***landform non significant***
+
+
+```{r}
+nBoot <- 1000
+lrStat <- rep(NA, nBoot)
+final.rainfall.compeition.null <- aov(log.sub.dens ~ log(ave.biomass) + rainfall, data = stand_metrics) #null w/o random effect
+final.final.competition.model <- lmer(log.sub.dens ~  log(ave.biomass) + rainfall + (1|plots), data = stand_metrics, REML = F) #full model
+lrObs <- 2 * logLik(final.final.competition.model) - 2 * logLik(final.rainfall.compeition.null) # observed test stat
+for (iBoot in 1:nBoot)
+{
+  stand_metrics$logDensitySim <- unlist(simulate(final.rainfall.compeition.null)) # resampled data
+  bNull <- aov(logDensitySim ~ log(ave.biomass) + rainfall, data = stand_metrics) # null model
+  bAlt <- lmer(logDensitySim ~ log(ave.biomass) + rainfall + (1|landform/plots), data = stand_metrics, REML = F) # full model
+  lrStat[iBoot] <- 2 * logLik(bAlt) - 2 * logLik(bNull) # resampled test stat
+}
+mean(lrStat > lrObs) # P-value for test of plot effect
+
+```
+
+
+***plots are significant***
+
+## Final competition model fit
+
+```{r}
+final.rainfall.compeition.null <- lmer(log.sub.dens ~ log(ave.biomass) + rainfall+ (1|plots), data = stand_metrics, REML = T)
+
+pairs(emmeans(final.rainfall.compeition.null, ~ "rainfall"))
+```
+
+
+
+```{r}
+# Extract the residuals from the model
+ave.treebio.residuals.fit <- residuals(final.rainfall.compeition.null)
+
+# Perform the ACF analysis
+ acf(ave.treebio.residuals.fit)
+ 
+```
+
+
+
+```{r}
+stand_metrics%>%
+  ggplot( aes(ave.biomass, subplot_density, colour = rainfall))+
+  geom_point(aes(shape = landform))+
+  geom_smooth(method = "lm", se = F)+
+  ylab(bquote("tree density "(tree/m^2)))+
+  xlab(bquote("individual tree biomass " (kg/subplot)))+
+  theme_cowplot()+
+  theme(legend.position = "none")+
+  scale_y_log10()+
+  scale_x_log10()
+
+```
+
 
 
 
