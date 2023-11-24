@@ -153,8 +153,381 @@ summary(wood_data)
 
 
 
-## Vessel area model (GLMM)
+## Vessel roundness model (GLMM)
 
+
+```{r}
+
+lmem.roundness <- lmer(log.roundness ~ rainfall  + (1|landform/tree), data = f.vessels)
+
+summary(lmem.roundness)
+
+```
+
+
+
+### Assumptions
+
+```{r}
+
+lmem.roundness <- lmer(log.roundness ~ rainfall + landform + (1|tree), data = f.vessels)
+
+summary(lmem.roundness)
+
+```
+
+
+
+```{r}
+
+scatter.smooth(residuals(lmem.roundness) ~ fitted(lmem.roundness))
+```
+
+```{r}
+qqnorm(residuals(lmem.roundness), pch = 1, frame = FALSE)
+qqline(residuals(lmem.roundness), col = "steelblue", lwd = 2)
+```
+
+***distributional assumptions not met find a new model***
+
+```{r}
+# Extract the residuals from the model
+residuals <- residuals(lmem.roundness)
+
+# Perform the ACF analysis
+ acf(residuals)
+```
+### compare GLM with various distributional assumptions
+```{r}
+vessels%>%
+  ggplot( aes(x = roundess))+
+  geom_histogram()+
+  ggtitle("vessel roundess distribution")
+  
+```
+***fits beata distribution the best***
+
+
+
+```{r}
+
+gamma.glmm.roundness <- glmmTMB(roundess ~ rainfall + (1|landform/tree), data = f.vessels,family = Gamma())
+
+beta.glmm.roundness <- glmmTMB(roundess ~ rainfall  + (1|landform/tree), data = f.vessels,family = beta_family())
+
+anova(gamma.glmm.roundness, beta.glmm.roundness, test = "LRT")
+
+```
+
+
+```{r}
+possion.glmm.roundness <- glmmTMB(roundess ~ rainfall + (1|landform/tree), data = f.vessels,family = poisson())
+
+anova(beta.glmm.roundness, possion.glmm.roundness, test = "LRT")
+```
+
+
+
+```{r}
+
+lmem.roundness <- lmer(log.roundness ~ rainfall + (1|landform/tree), data = f.vessels)
+
+beta.glmm.roundness <- glmmTMB(roundess ~ rainfall + (1|landform/tree), data = f.vessels,family = beta_family())
+
+# Compare the models using likelihood ratio test (LRT)
+anova(lmem.roundness, beta.glmm.roundness, test = "LRT")
+
+# Print the results
+AIC(beta.glmm.roundness, lmem.roundness)
+```
+
+
+```{r}
+
+scatter.smooth(residuals(beta.glmm.roundness) ~ fitted(beta.glmm.roundness))
+```
+
+```{r}
+summary(beta.glmm.roundness)
+```
+
+
+
+***glmm with beta distribution best***
+
+
+
+***rainfall not significant***
+
+
+
+
+### dredging 
+
+```{r}
+beta.glmm.roundness <- glmmTMB(roundess ~ rainfall + (1|landform/tree), data = f.vessels,family = beta_family())
+
+beta.glmm.roundness.null <- glmmTMB(roundess ~ (1|landform/tree), data = f.vessels,family = beta_family())
+
+anova(beta.glmm.roundness, beta.glmm.roundness.null, test = "LRT")
+```
+
+
+***rainfall not significant***
+```{r}
+vessel.roundness <- ggplot( f.vessels, aes(rainfall, roundess, fill = rainfall))+
+  geom_boxplot()+
+  theme_cowplot()+
+  scale_y_log10()+
+  ylab ("xylem roundness")+
+  xlab("rainfall site")+
+  theme(legend.position = "none")
+
+print(vessel.roundness)
+
+```
+
+
+## Vessel area model (LMEM)
+
+```{r}
+
+area.model <- lmer(log.area ~ rainfall +  (1|landform/tree), REML = T, data = f.vessels)
+
+
+```
+
+
+### assumptions
+
+
+```{r}
+
+
+qqnorm(residuals(area.model), pch = 1, frame = FALSE)
+qqline(residuals(area.model), col = "steelblue", lwd = 2)
+#plot(area.model, which = 2)
+
+
+```
+
+```{r}
+
+scatter.smooth(residuals(area.model) ~ fitted(area.model))
+```
+
+
+```{r}
+# Extract the residuals from the model
+residuals <- residuals(area.model)
+
+# Perform the ACF analysis
+ acf(residuals)
+```
+
+### dredging 
+
+
+```{r}
+area.model <- lmer(log.area ~ rainfall +  (1|landform/tree), REML = T, data = f.vessels)
+area.model.null <- lmer(log.area ~  (1|landform/tree), REML = T, data = f.vessels)
+
+
+anova(area.model, area.model.null, test = "LRT")
+```
+
+***rainfall not significant***
+
+
+
+
+```{r}
+#diamiter
+ggplot(f.vessels, aes(log.area, colour = rainfall)) +
+  geom_histogram()
+
+xylem_area <- ggplot( f.vessels, aes(rainfall, area, fill = rainfall))+
+  geom_boxplot()+
+  theme_cowplot()+
+  scale_y_log10()+
+  ylab(bquote("xylem area " (μm^2)))+
+  xlab("rainfall site")+
+  theme(legend.position = "none")
+
+print(xylem_area)
+
+```
+
+
+
+## Wood denisty model 
+
+```{r}
+
+wood.dens.aov <- lmer(wood.dens ~ rainfall + (1|landform), data = wood_data)
+
+summary(wood.dens.aov)
+
+```
+
+
+
+```{r}
+
+qqnorm(residuals(wood.dens.aov), pch = 1, frame = FALSE)
+qqline(residuals(wood.dens.aov), col = "steelblue", lwd = 2)
+
+```
+
+
+
+```{r}
+scatter.smooth(residuals(wood.dens.aov) ~ fitted(wood.dens.aov))
+```
+
+
+```{r}
+# Extract the residuals from the model
+residuals <- residuals(wood.dens.aov)
+
+# Perform the ACF analysis
+ acf(residuals)
+```
+
+
+### dredging 
+
+```{r}
+
+wood.dens.aov <- lmer(wood.dens ~ rainfall + (1|landform), data = wood_data, REML = T)
+wood.dens.null <- lmer(wood.dens ~ (1|landform), data = wood_data, REML = T)
+
+anova(wood.dens.aov, wood.dens.null, test = "LRT")
+
+```
+
+***rainfall not significant***
+
+```{r}
+
+wood.density <- wood_data%>%
+  ggplot(aes(rainfall, wood.dens, fill = rainfall))+
+  geom_boxplot()+
+  scale_y_log10()+
+  ylab(bquote("wood density " (g ~ cm^-3)))+
+  theme_cowplot()+
+  xlab(" ")+
+  ggtitle("d")+
+  theme(legend.position = "none")
+
+
+print(wood.density)
+
+```
+
+
+```{r}
+# Extract the residuals from the model
+residuals <- residuals(wood.dens.aov)
+
+# Perform the ACF analysis
+ acf(residuals)
+```
+
+
+
+
+
+
+
+## SLA model 
+
+```{r}
+SLA.anova <- lmer(log(sla) ~ rainfall + (1|landform), data = trait_SLA, REML = F)
+summary(SLA.anova)
+
+```
+
+
+```{r}
+
+qqnorm(residuals(SLA.anova), pch = 1, frame = FALSE)
+qqline(residuals(SLA.anova), col = "steelblue", lwd = 2)
+
+```
+
+
+```{r}
+scatter.smooth(residuals(SLA.anova) ~ fitted(SLA.anova))
+```
+
+```{r}
+# Extract the residuals from the model
+residuals <- residuals(SLA.anova)
+
+# Perform the ACF analysis
+ acf(residuals)
+```
+
+
+### dredging 
+
+```{r}
+SLA.anova <- lmer(log(sla) ~ rainfall + (1|landform), data = trait_SLA, REML = F)
+SLA.anova.null <- lmer(log(sla) ~ (1|landform), data = trait_SLA, REML = F)
+
+
+anova(SLA.anova,SLA.anova.null, test = "LRT")
+```
+
+### Final SLA model fit
+
+```{r}
+SLA.anova <- aov(log(sla) ~ rainfall, data = trait_SLA, REML = F)
+
+
+TukeyHSD(SLA.anova)
+```
+
+
+## Leaf area 
+
+```{r}
+
+leaf_area.aov <- aov(log(leaf_area) ~  rainfall, data = trait_SLA)
+
+summary(leaf_area.aov)
+
+TukeyHSD(leaf_area.aov)
+
+```
+
+
+
+
+```{r}
+qqnorm(residuals(leaf_area.aov), pch = 1, frame = FALSE)
+qqline(residuals(leaf_area.aov), col = "steelblue", lwd = 2)
+
+```
+
+
+```{r}
+scatter.smooth(residuals(leaf_area.aov) ~ fitted(leaf_area.aov))
+```
+
+
+}
+```{r}
+
+# Extract the residuals from the model
+residuals <- residuals(leaf_area.aov)
+
+# Perform the ACF analysis
+ acf(residuals)
+```
+
+****residual fit plot look weird*** 
 
 
 
@@ -698,7 +1071,6 @@ cv.residuals <- residuals(final.canopy.height.fit )
 
 ```{r}
 vif(final.canopy.height.fit)
-``
 ```
 
 
@@ -1095,7 +1467,7 @@ stands_boimass <-plot_D2h %>%
 print(stands_boimass)
 ```
 
-#HEIGHT/m2
+## height/m2 (LMEM)
 
 
 ```{r}
@@ -1258,80 +1630,6 @@ mean(lrStat > lrObs) # P-value for test of plots effect
 
 
 
-
-### change model structure to ANCOVA 
-
-```{r}
-final.density.aov <- aov(log.sub.dens ~ rainfall, data = spatial_plot_D2h)
-```
-
-
-### assumptions
-
-
-
-```{r}
-qqnorm(residuals(final.density.aov), pch = 1, frame = FALSE)
-qqline(residuals(final.density.aov), col = "steelblue", lwd = 2)
-
-```
-
-
-```{r}
-scatter.smooth(residuals(final.density.aov) ~ fitted(final.density.aov))
-```
-
-```{r}
-# Extract the residuals from the model
-dens.residuals.aov <- residuals(final.density.aov)
-
-# Perform the ACF analysis
- acf(dens.residuals.aov)
- 
-```
-
-
-***test if autocorelation is significant***
-
-```{r}
-spatial_plot_D2h$lagged_density <- lag(plot_D2h$log.sub.dens, 1)
-```
-
-```{r}
-final.density.lag.fit <- aov(log.sub.dens ~ rainfall + lagged_density, data = spatial_plot_D2h)
-
-Anova(final.density.lag.fit)
-
-coef(final.density.lag.fit)
-```
-
-***evidence of significant autocorrelation*** 
-
-
-### check for spatial_autocorrelation
-
-
-```{r}
-
-#add the residuals to the data set
-
-spatial_plot_D2h$Resid <- residuals(final.density.aov)
-
-
-bubble(spatial_plot_D2h, "Resid")
-
-```
-
-
-```{r}
-coords = cbind(spatial_plot_D2h$xcoord, spatial_plot_D2h$ycoords)
-w = fields:::rdist(coords)
-Moran.I(x = spatial_plot_D2h$log.sub.dens, w = w)
-```
-
-***not spatial auto_correlations***
-
-***despite the non-significance of plots as a random effect as determined by bootstrapping, the inclusion of this variable eliminates significant autocorrelation and therefore is included to allow the data to meet the assumption of dependence in linear modeling***
 
 
 ## Final stand density model
@@ -1505,7 +1803,7 @@ plot_D2h%>%
   geom_point(aes(shape = landform))+
   geom_smooth(method = "lm", se = F)+
   ylab(bquote("tree density "(tree/m^2)))+
-  xlab(bquote("individual tree biomass " (kg/subplot)))+
+  xlab(bquote("average tree basal area " (cm^2/subplot)))+
   theme_cowplot()+
   theme(legend.position = "none")+
   scale_y_log10()+
