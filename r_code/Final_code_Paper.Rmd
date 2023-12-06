@@ -28,8 +28,6 @@ library(forcats)
 
 library(mgcv)
 
-library(glmmLasso)
-
 library (glmmTMB)
 
 library(sp)
@@ -41,6 +39,8 @@ library(ape)
 library(ggpmisc)
 
 library(multcomp)
+
+library(DHARMa)
 
 library(MASS)
 
@@ -232,7 +232,7 @@ anova(beta.glmm.roundness, possion.glmm.roundness, test = "LRT")
 
 lmem.roundness <- lmer(log.roundness ~ rainfall + (1|landform/tree), data = f.vessels)
 
-beta.glmm.roundness <- glmmTMB(roundess ~ rainfall + (1|landform/tree), data = f.vessels,family = beta_family())
+beta.glmm.roundness <- glmmTMB(roundess ~ rainfall + (1|landform/tree), data = f.vessels, family = beta_family())
 
 # Compare the models using likelihood ratio test (LRT)
 anova(lmem.roundness, beta.glmm.roundness, test = "LRT")
@@ -246,6 +246,20 @@ AIC(beta.glmm.roundness, lmem.roundness)
 
 scatter.smooth(residuals(beta.glmm.roundness) ~ fitted(beta.glmm.roundness))
 ```
+
+
+
+```{r}
+beta.roundness.SimRes <- simulateResiduals(fittedModel  = beta.glmm.roundness)
+
+plot(beta.roundness.SimRes)
+
+```
+
+
+
+
+
 
 ```{r}
 summary(beta.glmm.roundness)
@@ -273,12 +287,16 @@ anova(beta.glmm.roundness, beta.glmm.roundness.null, test = "LRT")
 ```
 
 
+
+
+
+
 ***rainfall not significant***
 ```{r}
 vessel.roundness <- ggplot( f.vessels, aes(rainfall, roundess, fill = rainfall))+
   geom_boxplot()+
   theme_cowplot()+
-  scale_y_log10()+
+  #scale_y_log10()+
   ylab ("xylem roundness")+
   xlab("rainfall site")+
   theme(legend.position = "none")
@@ -534,6 +552,10 @@ residuals <- residuals(leaf_area.aov)
 
 
 
+
+
+
+
 # INDIVIUDAL TREE LEVEL METRICS
 
 ## build data sets
@@ -592,17 +614,7 @@ summary(total_wood)
     D2H_model <- basal_area %>%
    group_by(tree, height, landform, plots, rainfall, subplot, sub_plot_area, subplot_density, plot_density)%>%
   summarise(basal_area = sum(basal_area),.groups = "drop")%>%
-      mutate(diamiter = (sqrt(basal_area/3.14159265359))*2,
-             dbh = (diamiter*0.798)-0.577,# tapering equation from Paul et al, "testing the generality of above ground ind_biomass allometry across plant functional types at the continent scale"
-             stem_log_biomass = log(1.9+ 424.9 *(dbh/100)^2 * (height/100)), #ensure units of measurement are converted to cm
-             stem_biomass = exp(stem_log_biomass),
-             branch_log_biomass = log(208) + log((dbh/100)^2 * (height/100)),
-             branch_biomass = exp(branch_log_biomass),
-             leave_log_biomass = log(8) + log((dbh/100)^2 * (height/100)),
-             leave_biomass = exp(leave_log_biomass))%>%
-      mutate(
-        biomass = stem_biomass + branch_biomass + leave_biomass,
-        log_biomass = log(biomass))
+      mutate(diamiter = (sqrt(basal_area/3.14159265359))*2)
 
 ```
 
