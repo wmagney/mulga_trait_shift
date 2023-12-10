@@ -116,7 +116,7 @@ summary(total_leaves)
 trait_SLA <- total_leaves%>%
   mutate(
     tree_number = as.factor(tree_number),
-    #mm^2/mg
+    #cm^2/mg
     sla = leaf_area/leaf_mass,
     volume = leaf_area * leaf_thickness
     )%>%
@@ -237,8 +237,6 @@ beta.glmm.roundness <- glmmTMB(roundess ~ rainfall + (1|landform/tree), data = f
 # Compare the models using likelihood ratio test (LRT)
 anova(lmem.roundness, beta.glmm.roundness, test = "LRT")
 
-# Print the results
-AIC(beta.glmm.roundness, lmem.roundness)
 ```
 
 
@@ -259,8 +257,6 @@ plot(beta.roundness.SimRes)
 
 
 
-
-
 ```{r}
 summary(beta.glmm.roundness)
 ```
@@ -276,27 +272,22 @@ summary(beta.glmm.roundness)
 
 
 
-### dredging 
+### fixed effect hypothesis testing 
 
 ```{r}
 beta.glmm.roundness <- glmmTMB(roundess ~ rainfall + (1|landform/tree), data = f.vessels,family = beta_family())
 
 beta.glmm.roundness.null <- glmmTMB(roundess ~ (1|landform/tree), data = f.vessels,family = beta_family())
 
-anova(beta.glmm.roundness, beta.glmm.roundness.null, test = "LRT")
+anova(beta.glmm.roundness, beta.glmm.roundness.null, test = "chisq")
 ```
-
-
-
-
-
 
 ***rainfall not significant***
 ```{r}
 vessel.roundness <- ggplot( f.vessels, aes(rainfall, roundess, fill = rainfall))+
   geom_boxplot()+
   theme_cowplot()+
-  #scale_y_log10()+
+  ggtitle("a")+
   ylab ("xylem roundness")+
   xlab("rainfall site")+
   theme(legend.position = "none")
@@ -304,6 +295,14 @@ vessel.roundness <- ggplot( f.vessels, aes(rainfall, roundess, fill = rainfall))
 print(vessel.roundness)
 
 ```
+
+
+
+
+```{r}
+mean(f.vessels$roundess)
+```
+
 
 
 ## Vessel area model (LMEM)
@@ -343,7 +342,7 @@ residuals <- residuals(area.model)
  acf(residuals)
 ```
 
-### dredging 
+### fixed effect hypothesis testing 
 
 
 ```{r}
@@ -368,6 +367,7 @@ xylem_area <- ggplot( f.vessels, aes(rainfall, area, fill = rainfall))+
   geom_boxplot()+
   theme_cowplot()+
   scale_y_log10()+
+  ggtitle("b")+
   ylab(bquote("xylem area " (μm^2)))+
   xlab("rainfall site")+
   theme(legend.position = "none")
@@ -376,6 +376,11 @@ print(xylem_area)
 
 ```
 
+
+
+```{r}
+mean(f.vessels$area)
+```
 
 
 ## Wood denisty model 
@@ -413,7 +418,7 @@ residuals <- residuals(wood.dens.aov)
 ```
 
 
-### dredging 
+### fixed effect hypothesis testing 
 
 ```{r}
 
@@ -435,13 +440,18 @@ wood.density <- wood_data%>%
   ylab(bquote("wood density " (g ~ cm^-3)))+
   theme_cowplot()+
   xlab(" ")+
-  ggtitle("d")+
+  ggtitle("c")+
   theme(legend.position = "none")
 
 
 print(wood.density)
 
 ```
+
+```{r}
+mean(wood_data$wood.dens)
+```
+
 
 
 ```{r}
@@ -488,7 +498,7 @@ residuals <- residuals(SLA.anova)
 ```
 
 
-### dredging 
+### fixed effect hypothesis testing 
 
 ```{r}
 SLA.anova <- lmer(log(sla) ~ rainfall + (1|landform), data = trait_SLA, REML = F)
@@ -498,14 +508,74 @@ SLA.anova.null <- lmer(log(sla) ~ (1|landform), data = trait_SLA, REML = F)
 anova(SLA.anova,SLA.anova.null, test = "LRT")
 ```
 
+
+
+
+### random effect hypothesis testing 
+
+```{r}
+#test if we need landform given we have plots as a random effect
+
+nBoot <- 1000
+lrStat <- rep(NA, nBoot)
+SLA.anova.null <- aov(log(sla) ~  rainfall, data = trait_SLA) #null model
+SLA.anova.fit <- lmer(log(sla) ~ rainfall + (1|landform) , data = trait_SLA, REML = F) # full model
+lrObs <- 2 * logLik(SLA.anova.fit) - 2 * logLik(SLA.anova.null) # observed test stat
+for (iBoot in 1:nBoot)
+{
+  trait_SLA$logSLASim <- unlist(simulate(SLA.anova.null)) # resampled data
+  bNull <- aov(logSLASim ~  rainfall, data = trait_SLA) # null model
+  bAlt <- lmer(logSLASim ~ rainfall + (1 | landform), data = trait_SLA, REML = F) # full model
+  lrStat[iBoot] <- 2 * logLik(bAlt) - 2 * logLik(bNull) # resampled test stat
+}
+mean(lrStat > lrObs) # P-value for test of landform effect
+```
+
+
+
+
+
 ### Final SLA model fit
 
 ```{r}
-SLA.anova <- aov(log(sla) ~ rainfall, data = trait_SLA, REML = F)
+SLA.anova <- aov(log(sla) ~  rainfall, data = trait_SLA, REML = F)
 
 
 TukeyHSD(SLA.anova)
+
+
+summary(SLA.anova)
 ```
+
+
+```{r}
+
+d.massvsarea <- trait_SLA%>%
+  ggplot(aes(rainfall, sla, fill = rainfall))+
+  geom_boxplot()+
+  scale_y_log10()+
+  ylab(bquote("LMA" ~ (cm^2 ~ mg^-1)))+
+  xlab("   ")+
+  ggtitle("d")+ 
+  theme_cowplot()+
+  theme(legend.position = "none")
+
+print(d.massvsarea)
+
+#ggsave("d.massvsarea.png")
+
+```
+
+```{r}
+plot(SLA.anova, which = 1)
+```
+
+
+
+
+
+
+
 
 
 ## Leaf area 
@@ -531,7 +601,8 @@ qqline(residuals(leaf_area.aov), col = "steelblue", lwd = 2)
 
 
 ```{r}
-scatter.smooth(residuals(leaf_area.aov) ~ fitted(leaf_area.aov))
+plot(leaf_area.aov, which = 1)
+     
 ```
 
 
@@ -545,7 +616,6 @@ residuals <- residuals(leaf_area.aov)
  acf(residuals)
 ```
 
-****residual fit plot look weird*** 
 
 
 
@@ -691,11 +761,11 @@ canopy_volume <- allo_basal%>%
 
 ```{r}
 
-summary(allo_basal)
+summary(canopy_volume)
 
 ```
 
-
+***canopy volume is within standard estimates of mature trees from other studies "Canopy Area and Aboveground Mass of Individual Redberry Juniper"*****
 
 
 ## Basal area (LMEM)
@@ -729,7 +799,7 @@ basal.residuals <- residuals(final.basal.fit)
 # Perform the ACF analysis
  acf(basal.residuals)
 ```
-### dredging 
+### fixed effect hypothesis testing 
 
 
 final.height.basal.aov <- lmer(log(height) ~ log(basal_area) * rainfall + (1|landform/plots/subplot) , data = f.D2H_model, REML = F)
@@ -818,7 +888,9 @@ mean(lrStat > lrObs) # P-value for test of landform effect
 pairs(emmeans(final.height.basal.lm, ~  rainfall))
 
 ```{r}
-final.basal.fit <- lmer(log(basal_area) ~ rainfall + (1|plots/subplot) , data = f.D2H_model, REML = T) 
+final.basal.fit <- lmer(log(basal_area) ~ rainfall + (1|plots/subplot) , data = f.D2H_model, 
+                        control = lmerControl(optimizer ="Nelder_Mead"),
+                        REML = T) 
 
 
 summary(final.basal.fit)
@@ -838,15 +910,17 @@ pairs(emmeans(final.basal.fit, ~ "rainfall"))
 
 ```{r}
 
-f.D2H_model %>%
+b.a_graph <- f.D2H_model %>%
   ggplot(aes(rainfall, basal_area, fill = rainfall))+
   geom_boxplot( notch = F)+
   scale_y_log10()+
+  ggtitle("d")+
   ylab(bquote("basal area "(cm^2)))+
-  xlab(" ")+
+  xlab("rainfall")+
   theme_cowplot()+
-  theme(legend.position = "none",
-        axis.title=element_text(size=12))
+  theme(legend.position = "none")
+
+print(b.a_graph)
 
 
 ```
@@ -900,7 +974,7 @@ height.basal.residuals <- residuals(final.height.basal.lm)
 ```
 
 
-### dredging
+### fixed effect hypothesis testing
 
 ```{r}
 # null vs fit
@@ -971,6 +1045,10 @@ summary(final.height.basal.lm)
 pairs(emmeans(final.height.basal.lm, ~  rainfall))
 ```
 
+
+
+
+
 ```{r}
 basal.vs.heigh_plots <- f.D2H_model%>%
   ggplot(aes(basal_area, height, colour = rainfall))+
@@ -981,24 +1059,30 @@ geom_smooth(method = "nls",
              method.args = list(start = list(c=125, z=0.383739)))+
   ylab("height (cm)")+
   xlab(bquote("basal area " (cm^2)))+
-  xlim(c(NA, 1250))+
   ggtitle("a")+
+  xlim(NA, 1200)+
   theme_cowplot()+
   theme(axis.title=element_text(size=12), legend.position = "none")
   
 
 print(basal.vs.heigh_plots)
 
+#ggsave("basal.vs.height_plots.png")
+
 ```
 
 
-## Tree height (LMEM)
+
+
+## Tree height (GLMM)
 
 ```{r}
 final.tree.height.lm <- lmer(log(height) ~  rainfall + (1|landform/plots/subplot), data = f.D2H_model, REML = T)
 
 summary(final.tree.height.lm)
 ```
+
+
 
 
 ### assumptions
@@ -1025,22 +1109,80 @@ residuals <- residuals(final.tree.height.lm)
 # Perform the ACF analysis
  acf(residuals)
 ```
+***fit diagnostics indicates violation of the distributional assumptions***
 
 
+### GLMM height model 
 
-
-### dredging
 
 ```{r}
-final.tree.height.lm <- lmer(log(height) ~ rainfall + (1|landform/plots/subplot) , data = f.D2H_model, REML = F)
+ggplot(f.D2H_model, aes(height, colour = rainfall)) +
+  geom_histogram()
 
-final.tree.height.null <- lmer(log(height) ~  (1|landform/plots/subplot) , data = f.D2H_model, REML = F)
-
-anova(final.tree.height.null,final.tree.height.lm,test = "LRT")
 ```
 
 
-***rainfall not significant***
+```{r}
+height.GLMM.gamma <- glmmTMB(height ~ rainfall + (1|plots), data = f.D2H_model,family = Gamma(link = "log"))
+
+summary(height.GLMM.gamma)
+```
+
+
+
+```{r}
+gamma.height.SimRes <- simulateResiduals(fittedModel  = height.GLMM.gamma)
+
+plot(gamma.height.SimRes)
+```
+
+
+
+
+
+
+### fixed effect hypothesis testing 
+
+
+
+```{r}
+height.GLMM.gamma <- glmmTMB(height ~ rainfall + (1|plots), data = f.D2H_model,family = Gamma(link = "log"))
+
+height.GLMM.gamma.null <- glmmTMB(height ~  (1|plots), data = f.D2H_model,family = Gamma(link = "log"))
+
+anova(height.GLMM.gamma.null, height.GLMM.gamma, test = "Chisq")
+```
+
+
+
+
+```{r}
+pairs(emmeans(height.GLMM.gamma, ~ rainfall))
+```
+
+
+
+```{r}
+
+heightvsrainfall <- f.D2H_model%>%
+  ggplot( aes( rainfall, height, fill = rainfall))+
+  geom_boxplot(notch = F)+
+  scale_y_log10()+
+  ylab("height (cm)")+
+  xlab(" ")+
+    ggtitle("e")+
+  theme_cowplot()+
+   theme(legend.position = "none")
+  
+
+print(heightvsrainfall)
+
+```
+
+
+
+
+
 
 
 
@@ -1091,7 +1233,7 @@ vif(final.canopy.height.fit)
 
 
 
-### dredging 
+### fixed effect hypothesis testing 
 
 
 ```{r}
@@ -1158,6 +1300,7 @@ mean(lrStat > lrObs) # P-value for test of landform effect
 ```{r}
 final.canopy.height.aov <- aov(log.canopy.V ~ log.tree.H + rainfall, data = canopy_volume)
 
+
 ```
 
 
@@ -1195,18 +1338,17 @@ TukeyHSD(final.canopy.height.aov, "rainfall")
 
 ```{r}
 canopyvsheight <- canopy_volume%>%
-  ggplot( aes( tree_height, canopy_volume * 1000000, colour = rainfall))+
-  geom_point(aes(shape = landform))+
-  geom_smooth(method = "nls",
-              formula = y ~b +x^m,
-              se = F,
-              method.args = list(start = list(m=3, b=0)))+
-  ggtitle("b")+
-  xlab("height (m)")+
-  ylab(bquote("canopy volume  " (cm^3)))+
-  theme_cowplot()
-  theme(legend.position = "none",
-        axis.title=element_text(size=12))
+  ggplot( aes( tree_height, canopy_volume, colour = rainfall))+
+  geom_point()+
+  geom_smooth(method = "lm",
+              se = F)+
+  scale_x_log10()+
+  scale_y_log10()+
+  ggtitle("c")+
+  xlab("height (cm)")+
+  ylab(bquote("canopy volume  " (m^3)))+
+  theme_cowplot()+
+  theme(legend.position = "none")
 
 
 print(canopyvsheight)
@@ -1254,7 +1396,7 @@ vif(final.canopy.basal.fit)
 
 
 
-### dredging
+### fixed effect hypothesis testing
 
 
 ```{r}
@@ -1283,13 +1425,13 @@ anova(final.canopy.basal.null,final.canopy.basal.fit,test = "LRT")
 basalvscanopy <- canopy_volume%>%
   ggplot( aes( basal_area, canopy_volume, colour = rainfall))+
   geom_point(aes(shape = landform))+
-     geom_smooth(method = "nls",
-              formula = y ~ b + x^m,
-              se = FALSE,
-              method.args = list(start = list(b= 0.4660558, m = 1.13)))+
+     geom_smooth(method = "lm",
+                 se = F)+
   ylab(bquote("canopy volume " (m^3)))+
   xlab(bquote("basal area " (cm^2)))+
-  ggtitle("c")+
+  scale_x_log10()+
+  scale_y_log10()+
+  ggtitle("b")+
   theme_cowplot()+
   theme(axis.title=element_text(size=12,face="bold"))+
   theme(legend.position = "none")
@@ -1347,7 +1489,7 @@ summary(plot_D2h)
 
 
 
-## Plot level basal area (LMEM) 
+## Plot level basal area/m2 (LMEM) 
 
 
 
@@ -1385,7 +1527,7 @@ residuals <- residuals(final.plot.basal.fit)
  acf(residuals)
 ```
 
-### dredging 
+### fixed effect hypothesis testing 
 
 ```{r}
 final.plot.basal.fit <- lmer(logbasal.m2 ~ rainfall +  (1|landform/plots), data = plot_D2h, REML = F)
@@ -1460,10 +1602,9 @@ summary(final.plot.basal.fit)
 pairs(emmeans(final.plot.basal.fit, ~  rainfall))
 ```
 
-***sig diff between moderate and high, approaching significance (0.0566) for low and high***
+***sig diff between moderate other sites***
 
 
-***model summary suggests the high rainfall category is different to the low rainfall category, but the estimated marginal means indicates that it is not?***
 
 ```{r}
 stands_boimass <-plot_D2h %>%
@@ -1516,7 +1657,7 @@ residuals <- residuals(final.plot.height.fit)
 ```
 
 
-### dredging
+### fixed effect hypothesis testing
 
 
 
@@ -1530,7 +1671,64 @@ anova(final.plot.height.null,final.plot.height.fit,test = "LRT")
 ***rainfall significant***
 
 
-### hypothesis testing for randome effects
+### hypothesis testing for random effects
+
+
+
+```{r}
+#test if we need landform given we have plots as a random effect
+
+nBoot <- 1000
+lrStat <- rep(NA, nBoot)
+final.plot.height.null <- lmer(log(height.m2) ~ rainfall +  (1|plots), data = plot_D2h, REML = F) #null w/o random effect
+final.plot.height.fit <- lmer(log(height.m2) ~  rainfall + (1|landform/plots), data = plot_D2h, REML = F) # full model
+lrObs <- 2 * logLik(final.plot.height.fit) - 2 * logLik(final.plot.height.null) # observed test stat
+for (iBoot in 1:nBoot)
+{
+  plot_D2h$logHeightSim <- unlist(simulate(final.plot.height.null)) # resampled data
+  bNull <- lmer(logHeightSim ~ rainfall +  (1|plots), data = plot_D2h, REML = F) # null model
+  bAlt <- lmer(logHeightSim ~  rainfall + (1|landform/plots), data = plot_D2h, REML = F) # full model
+  lrStat[iBoot] <- 2 * logLik(bAlt) - 2 * logLik(bNull) # resampled test stat
+}
+mean(lrStat > lrObs) # P-value for test of landform effect
+```
+***landform not significant ***
+
+
+```{r}
+#test if we need plots 
+
+nBoot <- 1000
+lrStat <- rep(NA, nBoot)
+final.plot.height.null <- aov(log(height.m2) ~ rainfall, data = plot_D2h) #null w/o random effect
+final.plot.height.fit <- lmer(log(height.m2) ~  rainfall + (1|plots), data = plot_D2h, REML = F) # full model
+lrObs <- 2 * logLik(final.plot.height.fit) - 2 * logLik(final.plot.height.null) # observed test stat
+for (iBoot in 1:nBoot)
+{
+  plot_D2h$logHeightSim <- unlist(simulate(final.plot.height.null)) # resampled data
+  bNull <- aov(logHeightSim ~ rainfall, data = plot_D2h) # null model
+  bAlt <- lmer(logHeightSim ~  rainfall + (1|landform/plots), data = plot_D2h, REML = F) # full model
+  lrStat[iBoot] <- 2 * logLik(bAlt) - 2 * logLik(bNull) # resampled test stat
+}
+mean(lrStat > lrObs) # P-value for test of landform effect
+```
+
+
+***plot is significant***
+
+
+```{r}
+final.plot.height.fit <- lmer(log(height.m2) ~  rainfall + (1|plots), data = plot_D2h, REML = T)
+summary(final.plot.height.fit)
+
+
+```
+
+```{r}
+pairs(emmeans(final.plot.height.fit, ~ "rainfall"))
+```
+
+
 
 
 ```{r}
@@ -1582,7 +1780,7 @@ dens.residuals <- residuals(final.density.fit)
 ```
 
 
-### dreddging 
+### fixed effect hypothesis testing 
 
 
 ```{r}
@@ -1720,7 +1918,7 @@ scatter.smooth(residuals(final.add.competition.model) ~ fitted(final.add.competi
 
 
 
-### dredging
+### fixed effect hypothesis testing
 
 ```{r}
 # test significance of rainfall 
@@ -1865,10 +2063,32 @@ plot_D2h%>%
 
 
 
+# FIGURES 
+
+## Trait panel
+
+```{r}
+# traits/organs 
+
+plot_grid(vessel.roundness, xylem_area, wood.density, d.massvsarea,  rel_widths = c(1,1))
+
+
+ggsave("trait_comp.png", width = 12, height =10)
+
+```
 
 
 
 
+## structure panel 
+
+```{r}
+
+plot_grid(basal.vs.heigh_plots, basalvscanopy, canopyvsheight, b.a_graph, heightvsrainfall, nrows = 2, ncol = 2, rel_widths = c(1,1))
+
+
+ggsave("structral_comp.png", width = 10, height = 10)
+```
 
 
 
