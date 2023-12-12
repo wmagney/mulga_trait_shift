@@ -1112,18 +1112,20 @@ residuals <- residuals(final.tree.height.lm)
 ***fit diagnostics indicates violation of the distributional assumptions***
 
 
+
 ### GLMM height model 
 
 
 ```{r}
 ggplot(f.D2H_model, aes(height, colour = rainfall)) +
-  geom_histogram()
+  geom_histogram()+
+  scale_y_log10()
 
 ```
 
 
 ```{r}
-height.GLMM.gamma <- glmmTMB(height ~ rainfall + (1|plots), data = f.D2H_model,family = Gamma(link = "log"))
+height.GLMM.gamma <- glmmTMB(height ~ rainfall + (1|plots/subplot), data = f.D2H_model,family = Gamma(link = "log"))
 
 summary(height.GLMM.gamma)
 ```
@@ -1137,7 +1139,19 @@ plot(gamma.height.SimRes)
 ```
 
 
+```{r}
+# Extract the residuals from the model
+residuals <- residuals(height.GLMM.gamma)
 
+# Perform the ACF analysis
+ acf(residuals)
+```
+
+
+```{r}
+durbinWatsonTest(residuals)
+
+```
 
 
 
@@ -1146,9 +1160,9 @@ plot(gamma.height.SimRes)
 
 
 ```{r}
-height.GLMM.gamma <- glmmTMB(height ~ rainfall + (1|plots), data = f.D2H_model,family = Gamma(link = "log"))
+height.GLMM.gamma <- glmmTMB(height ~ rainfall + (1|plots/subplot), data = f.D2H_model,family = Gamma(link = "log"))
 
-height.GLMM.gamma.null <- glmmTMB(height ~  (1|plots), data = f.D2H_model,family = Gamma(link = "log"))
+height.GLMM.gamma.null <- glmmTMB(height ~  (1|plots/subplot), data = f.D2H_model,family = Gamma(link = "log"))
 
 anova(height.GLMM.gamma.null, height.GLMM.gamma, test = "Chisq")
 ```
@@ -1170,7 +1184,7 @@ heightvsrainfall <- f.D2H_model%>%
   scale_y_log10()+
   ylab("height (cm)")+
   xlab(" ")+
-    ggtitle("e")+
+  ggtitle("e")+
   theme_cowplot()+
    theme(legend.position = "none")
   
@@ -1607,20 +1621,20 @@ pairs(emmeans(final.plot.basal.fit, ~  rainfall))
 
 
 ```{r}
-stands_boimass <-plot_D2h %>%
+stands_basal <-plot_D2h %>%
   ggplot(aes( rainfall, basal.m2, fill = rainfall))+
   geom_boxplot(notch = F)+
   scale_y_log10()+
   ylab(bquote("basal area "(cm^2 ~ m^-2)))+
   xlab( "")+
-  ggtitle("a")+
+  ggtitle("b")+
   theme_cowplot()+
   theme(legend.position = "none")
 
-print(stands_boimass)
+print(stands_basal)
 ```
 
-## height/m2 (LMEM)
+## final height/m2 (LMEM)
 
 
 ```{r}
@@ -1716,6 +1730,7 @@ mean(lrStat > lrObs) # P-value for test of landform effect
 
 ***plot is significant***
 
+## Final stand height 
 
 ```{r}
 final.plot.height.fit <- lmer(log(height.m2) ~  rainfall + (1|plots), data = plot_D2h, REML = T)
@@ -1732,17 +1747,17 @@ pairs(emmeans(final.plot.height.fit, ~ "rainfall"))
 
 
 ```{r}
-stands_boimass <-plot_D2h %>%
+stand_height <-plot_D2h %>%
   ggplot(aes( rainfall, height.m2, fill = rainfall))+
   geom_boxplot(notch = F)+
   scale_y_log10()+
-  ylab(bquote("height "(m ~ m^-2)))+
+  ylab(bquote("height "(cm ~ m^-2)))+
   xlab( "")+
-  ggtitle("b")+
+  ggtitle("c")+
   theme_cowplot()+
   theme(legend.position = "none")
 
-print(stands_boimass)
+print(stand_height)
 ```
 
 ## Stand density model (LMEM)
@@ -1874,7 +1889,7 @@ final.tree.density <- plot_D2h%>%
   scale_y_log10()+
   ylab(bquote("tree density "(trees ~ m^-2)))+
   xlab(" ")+
-  ggtitle("b")+
+  ggtitle("a")+
   theme_cowplot()+
   theme(legend.position = "none")
 
@@ -2063,6 +2078,91 @@ plot_D2h%>%
 
 
 
+## DIE OFF
+
+
+## construct data set 
+
+```{r}
+library(readr)
+noco_deadvalive <- read_csv("rainfall_data/noco_deadvalive.csv")
+
+```
+
+```{r}
+noco_basal <- noco_deadvalive%>%
+  gather("d_10", "diamiter", starts_with ("d_"))%>%
+  mutate(
+    basal_area = (diamiter*0.5)^2*3.14159265359,
+    log_basal = log(basal_area))%>%
+  arrange(tree)%>%
+  filter(!is.na(diamiter))
+```
+
+
+## rainfall data 
+```{r}
+rainfall_history <- read_csv("rainfall_data/rainfall_history.csv")
+
+
+an.rainfall <- rainfall_history%>%
+  mutate(
+  rainfall = as.factor(rainfall),
+  rainfall = factor(rainfall, levels = c("low", "moderate", "high")))
+
+f.an.rainfall <- an.rainfall%>%
+  filter(year > 1985)
+
+summary(an.rainfall)
+```
+
+
+
+
+
+
+
+### Die off model 
+```{r}
+t.test(log_basal ~ status, data = noco_basal, var.equal = TRUE)
+
+```
+
+```{r}
+
+dead_vs_alive <- noco_basal%>%
+  ggplot(aes(status, basal_area, fill = status))+
+  geom_boxplot(notch = F)+
+  scale_y_log10()+
+  ylab(bquote("basal area "(cm^2)))+
+  xlab("tree status")+
+  ggtitle("a")+
+  theme_cowplot()+
+  theme(legend.position = "none")
+
+ 
+print(dead_vs_alive)    
+#ggsave("dead_vs_alive.png")
+```
+### plot chirps data
+
+```{r}
+rainfallTS<- f.an.rainfall%>%
+  ggplot( aes(year, annual_precipitation, colour = rainfall))+
+  geom_line()+
+    ylab("annual precipitation (mm)")+
+    xlab("year")+
+    ggtitle("b")+
+  theme_minimal()+
+  theme(legend.position = "none")
+  
+  
+print(rainfallTS) 
+#ggsave("rainfallTS.png")
+
+```
+
+
 # FIGURES 
 
 ## Trait panel
@@ -2091,5 +2191,25 @@ ggsave("structral_comp.png", width = 10, height = 10)
 ```
 
 
+
+## ecology panel
+
+```{r}
+
+plot_grid(final.tree.density, stands_basal, stand_height, nrows = 2, ncol = 2, rel_widths = c(1,1))
+
+
+ggsave("stand_comp.png", width = 10, height = 10)
+
+```
+
+### Die off panel 
+
+
+```{r}
+plot_grid(dead_vs_alive, rainfallTS, nrows = 2, ncol = 1, rel_widths = c(1,1))
+
+ggsave("dieoff_comp.png", width = 10, height = 10)
+```
 
 
