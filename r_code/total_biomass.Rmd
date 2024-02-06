@@ -1826,7 +1826,7 @@ ggsave("trait_comp.png", width = 10, height =10)
 plot_grid(occurence_map, rainfall_map, 
           rel_widths = c(1,1))
 
-ggsave("distribution_comp.png", width = 10, height =10)
+ggsave("distribution_comp.png", width = 10, height =5)
 
 ```
 

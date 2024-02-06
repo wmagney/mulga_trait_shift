@@ -95,7 +95,7 @@ occurence_map <- ggplot(ozmap_states) +
    coord_sf(xlim = c(110.0514, 156.3435), ylim = c(-10.100411, -38.532549),
 expand = FALSE)+
    theme_cowplot()+
-  ggtitle("a")
+  ggtitle("A")
 
 print(occurence_map)
 ggsave("occurance.png")
@@ -176,7 +176,7 @@ expand = FALSE)+
   scale_fill_viridis_c( name = "mm/y", direction = -1, limits = c(153, 500),oob = scales::squish)+
   xlab("longitude")+
   ylab("latitude")+
-  ggtitle("b")
+  ggtitle("B")
   
 print(rainfall_map)
 
