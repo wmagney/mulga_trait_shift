@@ -1,0 +1,292 @@
+### set up 
+
+
+
+```{r}
+library(tidyverse)
+
+library(lmer)
+
+library(readr)
+
+library(lmerTest)
+
+library(emmeans)
+
+library(car)
+
+library(cowplot)
+
+library(smatr)
+
+install.packages("remotes")
+
+remotes::install_github("traitecoevo/bmsma")
+
+```
+
+
+
+
+```{r}
+total_plots <- read_csv("plot_data/total_plots.csv")%>%
+  mutate(
+   landform = as.factor(landform),
+
+    plots = as.factor(plots),
+   
+   subplot = as.factor(subplot),
+
+    rainfall = factor(rainfall, levels = c("low", "moderate" , "high")))
+
+summary(total_plots)
+```
+
+```{r}
+
+ #calculate basal area and back transform   
+  tree_structure <- total_plots %>%
+  gather("d_10", "diamiter", starts_with ("d_"))%>%  #gathered D10 measurements 
+  mutate(basal_area = (diamiter*0.5)^2*3.14159265359)%>%  #transform to basal area
+  arrange(tree)%>% 
+  filter(!is.na(diamiter))%>% #filter NAs
+  group_by(tree, height, landform, plots, rainfall, subplot, sub_plot_area, subplot_density, plot_density)%>%
+  summarise(basal_area = sum(basal_area),.groups = "drop")%>% #sum basal areas for each tree
+      mutate(diamiter = (sqrt(basal_area/3.14159265359))*2)%>% #back transform to sigle D measrument 
+  filter(diamiter >2) #filter out small trees 
+```
+
+
+```{r}
+summary(basal_area)
+```
+
+
+```{r}
+print(basal_area)
+```
+
+
+# view LMER model 
+
+final.height.basal.lm <- lmer(log(height) ~ log(basal_area) * rainfall + (1|plots/subplot) , data = f.D2H_model, REML = T)
+
+summary(final.height.basal.lm)
+
+
+```{r}
+#the interaction term (*) between log(basal_area) and rainfall allows the "height Vs basal areas" relationship to vary between levels of rainfall (or across sites). 
+
+final.height.basal.lm <- lmer(log(height) ~ log(basal_area) * rainfall + (1|plots/subplot), data = tree_structure, REML = T)
+
+summary(final.height.basal.lm)
+
+
+```
+
+## lmer model fit 
+
+```{r}
+qqnorm(residuals(final.height.basal.lm), pch = 1, frame = FALSE)
+qqline(residuals(final.height.basal.lm), col = "steelblue", lwd = 2)
+
+```
+***heavy tailed**
+
+```{r}
+scatter.smooth(residuals(final.height.basal.lm) ~ fitted(final.height.basal.lm))
+```
+
+
+
+
+
+```{r}
+vif(final.height.basal.lm)
+```
+
+
+
+```{r}
+# Extract the residuals from the model
+height.basal.residuals <- residuals(final.height.basal.lm)
+
+# Perform the ACF analysis
+ acf(height.basal.residuals)
+```
+
+***slight autocorrelation** 
+
+
+## LMER visualisation 
+
+```{r}
+#functions for BA Vs H 
+
+
+H.BA.FUN.L <- function(x) { 199.5371 * x^0.152}
+
+H.BA.FUN.M <- function(x) { 183.8739 * x ^0.19183 }
+
+H.BA.FUN.H <- function(x) {168.5445 * x^0.3054}
+
+
+```
+
+
+
+  geom_function(fun = CV.H.FUN.L, n = 105, colour = "red", size = 1)+
+  geom_function(fun = CV.H.FUN.M, n = 105, colour = "forestgreen", size = 1)+
+  geom_function(fun = CV.H.FUN.H, n = 105, colour =  "deepskyblue3 ", size = 1)+
+
+```{r}
+basal.vs.heigh_plots <- tree_structure%>%
+  ggplot(aes(basal_area, height, colour = rainfall))+
+  geom_point(aes(shape = landform))+
+  geom_function(fun = H.BA.FUN.L, n = 105, colour = "red", size = 1)+
+  geom_function(fun = H.BA.FUN.M, n = 105, colour = "forestgreen", size = 1)+
+  geom_function(fun = H.BA.FUN.H, n = 105, colour =  "deepskyblue3 ", size = 1)+
+  ylab("height (cm)")+
+  xlab(bquote("basal area "(cm^2)))+
+  ggtitle("A")+
+  theme_cowplot()+
+  xlim(0, 1200)+
+  theme(axis.title=element_text(size=12), legend.position = "none")
+  
+
+print(basal.vs.heigh_plots)
+
+#ggsave("basal.vs.height_plots.png")
+
+```
+
+
+# SMATR
+
+
+com.test <- sma(longev~lma*rain, log="xy", data=leaf.low.soilp)
+com.test
+
+
+```{r}
+sma.ba_h.test <- sma(height ~ basal_area * rainfall,  log="xy", data=tree_structure)
+sma.ba_h.test
+
+
+summary(sma.ba_h.test)
+```
+
+```{r}
+sma.int.BA_H<- with(tree_structure, elev.com(log(height), log10(basal_area), rainfall))
+
+print(sma.int.BA_H)
+
+```
+
+
+```{r}
+qqnorm(residuals(sma.ba_h.test), pch = 1, frame = FALSE)
+qqline(residuals(sma.ba_h.test), col = "steelblue", lwd = 2)
+
+```
+
+```{r}
+scatter.smooth(residuals(sma.ba_h.test) ~ fitted(sma.ba_h.test))
+```
+
+
+```{r}
+# Extract the residuals from the model
+height.basal.residuals <- residuals(sma.ba_h.test)
+
+# Perform the ACF analysis
+ acf(height.basal.residuals)
+```
+
+
+sma(longev~lma+rain, log="xy", type="shift", data=leaf.low.soilp)
+
+
+
+
+
+
+
+## visualise smatr 
+
+
+
+```{r}
+exp(4.472308) #low elevation 
+
+exp(4.488246) #mod elevation 
+
+exp(5.003650) #high elevation 
+```
+
+
+
+
+```{r}
+#functions for BA Vs H 
+
+
+sma.H.BA.FUN.L <- function(x) {87.55858 * x^0.2931996}
+
+sma.H.BA.FUN.M <- function(x) {88.96526 * x ^0.3480308 }
+
+sma.H.BA.FUN.H <- function(x) {148.9559 * x^0.3720465}
+
+
+```
+
+
+
+```{r}
+sma.basal.vs.heigh_plots <- tree_structure%>%
+  ggplot(aes(basal_area, height, colour = rainfall))+
+  geom_point(aes(shape = landform))+
+  geom_function(fun = sma.H.BA.FUN.L, n = 105, colour = "red", size = 1)+
+  geom_function(fun = sma.H.BA.FUN.M, n = 105, colour = "forestgreen", size = 1)+
+  geom_function(fun = sma.H.BA.FUN.H, n = 105, colour =  "deepskyblue3 ", size = 1)+
+  ylab("height (cm)")+
+  xlab(bquote("basal area "(cm^2)))+
+  ggtitle("A")+
+  theme_cowplot()+
+  xlim(0, 1200)+
+  theme(axis.title=element_text(size=12), legend.position = "none")
+  
+
+print(sma.basal.vs.heigh_plots)
+```
+
+
+
+
+```{r}
+
+print(basal.vs.heigh_plots)
+
+print(sma.basal.vs.heigh_plots)
+
+
+```
+
+# Multilevel Standard Major Axis 
+
+```{r}
+bmsma_model("linear") |>
+  bmsma_assign_data(X = tree_structure$basal_area,
+                   Y = tree_structure$height,
+                   N = nrow()) |>
+  bmsma_run()
+```
+
+
+
+
+
+
+
+
+

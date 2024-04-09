@@ -126,8 +126,7 @@ summary(total_leaves)
 trait_SLA <- total_leaves%>%
   mutate(
     tree_number = as.factor(tree_number),
-    #cm^2/mg
-    sla = leaf_area/leaf_mass,
+    sla = leaf_mass/leaf_area, #cm^2/mg
     volume = leaf_area * leaf_thickness
     )%>%
   arrange(tree_number)%>%
@@ -136,6 +135,19 @@ trait_SLA <- total_leaves%>%
 
 summary(trait_SLA)
 ```
+
+```{r}
+leaf_thickness.df <- total_leaves%>%
+  mutate(
+    m.leaf_thickness = mean(leaf_thickness)
+    )%>%
+  arrange(tree_number)%>%
+  filter(!is.na(leaf_thickness))%>%
+  aggregate(leaf_thickness ~ tree_number + landform + leaf_area + leaf_thickness  + leaf_mass + wood_density + rainfall,mean)
+
+summary(leaf_thickness.df)
+```
+
 
 ```{r}
 # Wood density data
@@ -460,7 +472,7 @@ xylem_area <- ggplot( f.vessels, aes(rainfall, area, fill = rainfall))+
   scale_y_log10()+
   ggtitle("B")+
   ylab(bquote("xylem area " (μm^2)))+
-  xlab("rainfall site")+
+  xlab("")+
   theme(legend.position = "none")
 
 print(xylem_area)
@@ -601,7 +613,7 @@ residuals <- residuals(wood.dens.aov)
 `
 
 ```{r}
-SLA.anova <- aov(log(sla) ~  rainfall, data = trait_SLA)
+SLA.anova <- aov(log(sla) ~  rainfall/landform, data = trait_SLA)
 
 ```
 
@@ -636,7 +648,7 @@ residuals <- residuals(SLA.anova)
 ### Final SLA model fit
 
 ```{r}
-SLA.anova <- aov(log(sla) ~  rainfall, data = trait_SLA)
+SLA.anova <- aov(log(sla) ~  rainfall/landform, data = trait_SLA)
 
 
 TukeyHSD(SLA.anova)
@@ -646,10 +658,6 @@ summary(SLA.anova)
 ```
 
 
-
-```{r}
-TukeyHSD(SLA.anova)
-```
 
 
 
@@ -710,7 +718,7 @@ d.massvsarea <- trait_SLA%>%
   ggplot(aes(rainfall, sla, fill = rainfall))+
   geom_boxplot()+
   scale_y_log10()+
-  ylab(bquote("LMA" ~ (cm^2 ~ mg^-1)))+
+  ylab(bquote("LMA" ~ (mg ~ cm^-2)))+
   xlab("   ")+
   ggtitle("D")+ 
   theme_cowplot()+
@@ -738,12 +746,17 @@ plot(SLA.anova, which = 1)
 
 ```{r}
 
-leaf_area.aov <- aov(log(leaf_area) ~  rainfall, data = trait_SLA)
+leaf_area.aov <- aov(log(leaf_area) ~  rainfall/landform, data = trait_SLA)
 
 summary(leaf_area.aov)
 
 TukeyHSD(leaf_area.aov)
 
+```
+```{r}
+leaf_area.aov <- lm(log(leaf_area) ~  rainfall, data = trait_SLA)
+
+summary(leaf_area.aov)
 ```
 
 
@@ -773,11 +786,76 @@ residuals <- residuals(leaf_area.aov)
 ```
 
 
+```{r}
+
+leaf.area <- trait_SLA%>%
+  ggplot(aes(rainfall, leaf_area, fill = rainfall))+
+  geom_boxplot()+
+  scale_y_log10()+
+  ylab(bquote("leaf area " (cm^2)))+
+  xlab("   ")+
+  ggtitle("D")+ 
+  theme_cowplot()+
+  theme(legend.position = "none")
+
+print(leaf.area)
+
+#ggsave("leaf.area.png")
+
+```
+
+## leaf thickness 
+
+
+
+```{r}
+leaf.thickness.lm <- lm(log(leaf_thickness) ~ rainfall, data = leaf_thickness.df)
+
+summary(leaf.thickness.lm)
+```
 
 
 
 
+```{r}
+qqnorm(residuals(leaf.thickness.lm), pch = 1, frame = FALSE)
+qqline(residuals(leaf.thickness.lm), col = "steelblue", lwd = 2)
 
+```
+
+
+```{r}
+plot(leaf.thickness.lm, which = 1)
+     
+```
+
+
+```{r}
+
+# Extract the residuals from the model
+residuals <- residuals(leaf.thickness.lm)
+
+# Perform the ACF analysis
+ acf(residuals)
+ 
+```
+
+```{r}
+
+leaf.thick <- leaf_thickness.df%>%
+  ggplot(aes(rainfall, leaf_thickness, fill = rainfall))+
+  geom_boxplot()+
+  scale_y_log10()+
+  ylab("leaf thickness mm")+
+  xlab("   ")+
+  ggtitle("D")+ 
+  theme_cowplot()+
+  theme(legend.position = "none")
+
+print(leaf.thick)
+
+#ggsave("leaf.thick.png")
+```
 
 
 
@@ -1058,14 +1136,17 @@ mean(lrStat > lrObs) # P-value for test of landform effect
 pairs(emmeans(final.height.basal.lm, ~  rainfall))
 
 ```{r}
-final.basal.fit <- lmer(log(basal_area) ~ rainfall + (1|plots/subplot) , data = f.D2H_model, 
-                        control = lmerControl(optimizer ="Nelder_Mead"),
-                        REML = T) 
+final.basal.fit <- lmer(log(basal_area) ~ rainfall + (1|plots/subplot) , data = f.D2H_model, control = lmerControl(optimizer ="Nelder_Mead"), REML = T) 
 
 
 summary(final.basal.fit)
 
 ```
+
+#r squared 
+
+
+
 
 
 ```{r}
@@ -1253,7 +1334,7 @@ mean(lrStat > lrObs) # P-value for test of plots effect
 ## Final Basal area to height model 
 
 ```{r}
-final.height.basal.lm <- lmer(log(height) ~ log(diamiter) * rainfall + (1|plots/subplot) , data = f.D2H_model, REML = T)
+final.height.basal.lm <- lmer(log(height) ~ log(basal_area) * rainfall + (1|plots/subplot) , data = f.D2H_model, REML = T)
 
 summary(final.height.basal.lm)
 ```
@@ -1289,21 +1370,23 @@ pairs(emmeans(final.height.basal.lm, ~  rainfall))
 confint(final.height.basal.lm)
 ```
 
+5.296
+
 ```{r}
 #low exponent 
 
-0.30393       # mean 
-0.266270622   # lower
-0.34194088    # upper
+0.1520      # mean 
+0.133135311    # lower
+0.17097044  # upper
 
 ```
 
 ```{r}
 #mod exponent
 
-0.30393 + 0.07966            # mean 
-0.266270622  + 0.009957548   # lower
-0.34194088 + 0.14891702      # upper
+0.1520 + 3.983e-02      # mean 
+0.133135311 + 0.004978774  # lower
+0.17097044+ 0.07445851  # upper
 
 ```
 
@@ -1311,22 +1394,28 @@ confint(final.height.basal.lm)
 ```{r}
 #high exponent
 
-0.30393 + 0.30680           # mean
-0.266270622 +  0.256698255  # lower
-0.34194088 + 0.35643309     # upper
+0.1520 + 0.1534           # mean
+0.133135311 + 0.128349128  # lower
+0.17097044 + 0.17821654     # upper
 
 ```
 
 
 
+(Intercept)                       5.296e+00  7.468e-02  3.340e+01  70.912   <2e-16 ***
+log(basal_area)                   1.520e-01  9.667e-03  1.756e+03  15.719   <2e-16 ***
+rainfallmoderate                 -8.175e-02  1.214e-01  6.731e+01  -0.673   0.5031    
+rainfallhigh                     -1.688e-01  1.018e-01  2.901e+01  -1.659   0.1079   
+
+
 ```{r}
 # CIs for the low rainfall intercept 
 
-exp(5.25929) # mean 
+exp(5.296) # mean 
 
-exp(5.115274651) #lower 
+exp(5.154632201) #lower 
 
-exp(5.40318628) #upper
+exp(5.43727241) #upper
 
 ```
 
@@ -1335,24 +1424,24 @@ exp(5.40318628) #upper
 ```{r}
 # CIs for the mod rainfall intercept 
 
-exp(5.25929  - 0.09137) # mean 
+exp(5.296 -0.08175)          # mean 
 
-exp(5.11527465 -0.328163516) #lower 
+exp(5.154632201 - 0.312428417) #lower 
 
-exp(5.40318628 + 0.14623778) #upper
+exp(5.43727241 + 0.14966995) #upper
 
 ```
 
-
+  -0.361280337 0.02368607
 
 ```{r}
 # CIs for the high rainfall intercept 
 
-exp(5.25929  -0.20589) # mean 
+exp(5.296  -0.1688) # mean 
 
-exp(5.11527465 -0.401401407) #lower 
+exp(5.154632201  - 0.361280337) #lower 
 
-exp(5.40318628  -0.01027659) #upper
+exp(5.43727241  + 0.02368607) #upper
 
 ```
 
@@ -1363,11 +1452,11 @@ exp(5.40318628  -0.01027659) #upper
 #functions for BA Vs H 
 
 
-H.BA.FUN.L <- function(x) { 192.3449 * x^0.30393}
+H.BA.FUN.L <- function(x) { 199.5371 * x^0.152}
 
-H.BA.FUN.M <- function(x) { 175.5493 * x ^0.38359 }
+H.BA.FUN.M <- function(x) { 183.8739 * x ^0.19183 }
 
-H.BA.FUN.H <- function(x) {156.5538 * x^0.61073}
+H.BA.FUN.H <- function(x) {168.5445 * x^0.3054}
 
 
 ```
@@ -1380,17 +1469,16 @@ H.BA.FUN.H <- function(x) {156.5538 * x^0.61073}
 
 ```{r}
 basal.vs.heigh_plots <- f.D2H_model%>%
-  ggplot(aes(diamiter, height, colour = rainfall))+
+  ggplot(aes(basal_area, height, colour = rainfall))+
   geom_point(aes(shape = landform))+
   geom_function(fun = H.BA.FUN.L, n = 105, colour = "red", size = 1)+
   geom_function(fun = H.BA.FUN.M, n = 105, colour = "forestgreen", size = 1)+
   geom_function(fun = H.BA.FUN.H, n = 105, colour =  "deepskyblue3 ", size = 1)+
   ylab("height (cm)")+
-  xlab("diameter (cm)")+
+  xlab(bquote("basal area "(cm^2)))+
   ggtitle("A")+
-  #scale_x_log10()+
-  #scale_y_log10()+
   theme_cowplot()+
+  xlim(0, 1200)+
   theme(axis.title=element_text(size=12), legend.position = "none")
   
 
@@ -2958,7 +3046,7 @@ print(rainfallTS)
 ```{r}
 # traits/organs 
 
-plot_grid(vessel.roundness, xylem_area, wood.density, d.massvsarea,  rel_widths = c(1,1))
+plot_grid(vessel.roundness, xylem_area, wood.density, d.massvsarea, leaf.area, nrows =3, ncol=2, rel_widths = c(1,1))
 
 
 ggsave("trait_comp.png", width = 12, height =10)
