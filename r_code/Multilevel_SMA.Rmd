@@ -5,28 +5,28 @@
 ```{r}
 library(tidyverse)
 
-library(lmer)
+library(lme4)
 
 library(readr)
+
+library(car)
 
 library(lmerTest)
 
 library(emmeans)
 
-library(car)
-
 library(cowplot)
 
 library(smatr)
 
-install.packages("remotes")
+#install.packages("remotes")
 
-remotes::install_github("traitecoevo/bmsma")
+#remotes::install_github("traitecoevo/bmsma")
 
 ```
 
 
-
+# data set 
 
 ```{r}
 total_plots <- read_csv("plot_data/total_plots.csv")%>%
@@ -58,20 +58,18 @@ summary(total_plots)
 
 
 ```{r}
-summary(basal_area)
+summary(tree_structure)
 ```
 
 
 ```{r}
-print(basal_area)
+print(tree_structure)
 ```
 
 
-# view LMER model 
+# fit and visualise LMER model 
 
-final.height.basal.lm <- lmer(log(height) ~ log(basal_area) * rainfall + (1|plots/subplot) , data = f.D2H_model, REML = T)
 
-summary(final.height.basal.lm)
 
 
 ```{r}
@@ -161,7 +159,7 @@ print(basal.vs.heigh_plots)
 ```
 
 
-# SMATR
+# SMATR fit and visulisation
 
 
 com.test <- sma(longev~lma*rain, log="xy", data=leaf.low.soilp)
@@ -176,10 +174,13 @@ sma.ba_h.test
 summary(sma.ba_h.test)
 ```
 
+
+
+
 ```{r}
 sma.int.BA_H<- with(tree_structure, elev.com(log(height), log10(basal_area), rainfall))
 
-print(sma.int.BA_H)
+sma.int.BA_H
 
 ```
 
@@ -272,20 +273,48 @@ print(sma.basal.vs.heigh_plots)
 
 ```
 
-# Multilevel Standard Major Axis 
+## test fit across levels of subplots 
+
+
 
 ```{r}
-bmsma_model("linear") |>
-  bmsma_assign_data(X = tree_structure$basal_area,
-                   Y = tree_structure$height,
-                   N = nrow()) |>
-  bmsma_run()
+sma.sub.fit.test <- sma(height ~ basal_area * subplot,  log="xy", data=tree_structure)
+sma.sub.fit.test 
+
+
+summary(sma.sub.fit.test)
+
+```
+
+
+```{r}
+sma.int.fit<- with(tree_structure, elev.com(log(height), log10(basal_area), subplot))
+
+sma.int.fit
+
 ```
 
 
 
+```{r}
+sma.test.fit <- tree_structure%>%
+  ggplot(aes(basal_area, height, colour = rainfall, shape = plots))+
+  geom_smooth(method = "lm",
+              se = F)+
+  ylab("height (cm)")+
+  xlab(bquote("basal area "(cm^2)))+
+  scale_x_log10()+
+  scale_y_log10()+
+  ggtitle("A")+
+  theme_cowplot()+
+  theme(axis.title=element_text(size=12), legend.position = "none")
+  
+  
 
+print(sma.test.fit)
 
+#ggsave("sma.test.fit.png")
+```
 
 
 
