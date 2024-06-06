@@ -1,0 +1,709 @@
+---
+title: "MELM bivariate models"
+output: html_notebook
+---
+
+
+
+# set up
+
+```{r}
+
+library(lme4) #mixed effect linear models
+
+library(MuMIn)
+
+library(lmerTest)
+
+library(emmeans)
+
+library(tidyverse)
+
+library(readr)
+
+library(nlme)
+
+library(ggpmisc)
+
+library(cowplot)
+
+library(car)
+
+library(forcats)
+
+library(msm)
+
+library(mgcv)
+
+library (glmmTMB)
+
+library(ape)
+
+library(ggpmisc)
+
+library(multcomp)
+
+library(DHARMa)
+
+library(MASS)
+
+library(betareg)
+
+```
+
+
+
+
+
+# individual tree
+
+## height vs basal area
+
+
+```{r}
+#the interaction term (*) between log(basal_area) and rainfall allows the "height Vs basal areas" relationship to vary between levels of rainfall (or across sites). 
+
+final.height.basal.lm <- lmer(log(height) ~ log(basal_area) * rainfall + (1|plots/subplot), data = f.D2H_model, REML = T)
+
+summary(final.height.basal.lm)
+confint(final.basal.fit)
+
+
+```
+
+### assumptions
+```{r}
+qqnorm(residuals(final.height.basal.lm), pch = 1, frame = FALSE)
+qqline(residuals(final.height.basal.lm), col = "steelblue", lwd = 2)
+
+```
+
+
+```{r}
+scatter.smooth(residuals(final.height.basal.lm) ~ fitted(final.height.basal.lm))
+```
+
+
+
+
+
+```{r}
+vif(final.height.basal.lm)
+```
+
+
+
+```{r}
+# Extract the residuals from the model
+height.basal.residuals <- residuals(final.height.basal.lm)
+
+# Perform the ACF analysis
+ acf(height.basal.residuals)
+```
+
+
+### fixed effect hypothesis testing
+
+```{r}
+# null vs fit
+
+final.height.basal.aov <- lmer(log(height) ~ log(basal_area) * rainfall + (1|landform/plots/subplot) , data = f.D2H_model, REML = F)
+final.height.null <- lmer(log(height) ~ log(basal_area) + (1|landform/plots/subplot), data = f.D2H_model, REML = F)
+
+anova(final.height.null,final.height.basal.aov,test = "LRT")
+
+```
+
+
+
+
+### hypothesis testing for random effects
+
+```{r}
+#test if we need landform given we have plots as a random effect
+
+nBoot <- 1000
+lrStat <- rep(NA, nBoot)
+final.height.basal.null <- lmer(log(height) ~ log(basal_area) * rainfall + (1|plots/subplot) , data = f.D2H_model, REML = F) #null model
+final.height.basal.aov <- lmer(log(height) ~ log(basal_area) * rainfall + (1|landform/plots/subplot) , data = f.D2H_model, REML = F) # full model
+lrObs <- 2 * logLik(final.height.basal.aov) - 2 * logLik(final.height.basal.null) # observed test stat
+for (iBoot in 1:nBoot)
+{
+  f.D2H_model$logHeightSim <- unlist(simulate(final.height.basal.null)) # resampled data
+  bNull <- lmer(logHeightSim ~ log(basal_area) * rainfall + (1 | plots/subplot), data = f.D2H_model, REML = F) # null model
+  bAlt <- lmer(logHeightSim ~ log(basal_area) * rainfall + (1 | landform/plots/subplot), data = f.D2H_model, REML = F) # full model
+  lrStat[iBoot] <- 2 * logLik(bAlt) - 2 * logLik(bNull) # resampled test stat
+}
+mean(lrStat > lrObs) # P-value for test of landform effect
+```
+
+
+```{r}
+#test if we need subplots given we have plots as a random effect
+
+nBoot <- 1000
+lrStat <- rep(NA, nBoot)
+final.height.basal.null <- lmer(log(height) ~ log(basal_area) * rainfall + (1|plots) , data = f.D2H_model, REML = F)
+final.height.basal.aov <- lmer(log(height) ~ log(basal_area) * rainfall + (1|plots/subplot) , data = f.D2H_model, REML = F) # full model
+lrObs <- 2 * logLik(final.height.basal.aov) - 2 * logLik(final.height.basal.null) # observed test stat
+for (iBoot in 1:nBoot)
+{
+  f.D2H_model$logHeightSim <- unlist(simulate(final.height.basal.null)) # resampled data
+  bNull <- lmer(logHeightSim ~ log(basal_area) * rainfall + (1 | plots), data = f.D2H_model, REML = F) # null model
+  bAlt <- lmer(logHeightSim ~ log(basal_area) * rainfall + (1 |plots/subplot), data = f.D2H_model, REML = F) # full model
+  lrStat[iBoot] <- 2 * logLik(bAlt) - 2 * logLik(bNull) # resampled test stat
+}
+mean(lrStat > lrObs) # P-value for test of plots effect
+```
+
+
+
+
+
+## Final Basal area to height model 
+
+```{r}
+final.height.basal.lm <- lmer(log(height) ~ log(basal_area) * rainfall + (1|plots/subplot) , data = f.D2H_model, REML = T)
+
+summary(final.height.basal.lm)
+```
+
+
+
+```{r}
+r.squaredGLMM(final.height.basal.lm)
+```
+
+
+
+```{r}
+anova(final.height.basal.lm)
+```
+
+
+
+
+
+```{r}
+#difference in means 
+
+pairs(emmeans(final.height.basal.lm, ~  rainfall))
+
+
+```
+
+
+
+```{r}
+
+#confidence intervals for the slopes across 
+
+confint(final.height.basal.lm)
+```
+
+5.296
+
+```{r}
+#low exponent 
+
+0.1520      # mean 
+0.133135311    # lower
+0.17097044  # upper
+
+```
+
+```{r}
+#mod exponent
+
+0.1520 + 3.983e-02      # mean 
+0.133135311 + 0.004978774  # lower
+0.17097044+ 0.07445851  # upper
+
+```
+
+
+```{r}
+#high exponent
+
+0.1520 + 0.1534           # mean
+0.133135311 + 0.128349128  # lower
+0.17097044 + 0.17821654     # upper
+
+```
+
+
+
+(Intercept)                       5.296e+00  7.468e-02  3.340e+01  70.912   <2e-16 ***
+log(basal_area)                   1.520e-01  9.667e-03  1.756e+03  15.719   <2e-16 ***
+rainfallmoderate                 -8.175e-02  1.214e-01  6.731e+01  -0.673   0.5031    
+rainfallhigh                     -1.688e-01  1.018e-01  2.901e+01  -1.659   0.1079   
+
+
+```{r}
+# CIs for the low rainfall intercept 
+
+exp(5.296) # mean 
+
+exp(5.154632201) #lower 
+
+exp(5.43727241) #upper
+
+```
+
+
+
+```{r}
+# CIs for the mod rainfall intercept 
+
+exp(5.296 -0.08175)          # mean 
+
+exp(5.154632201 - 0.312428417) #lower 
+
+exp(5.43727241 + 0.14966995) #upper
+
+```
+
+  -0.361280337 0.02368607
+
+```{r}
+# CIs for the high rainfall intercept 
+
+exp(5.296  -0.1688) # mean 
+
+exp(5.154632201  - 0.361280337) #lower 
+
+exp(5.43727241  + 0.02368607) #upper
+
+```
+
+
+
+
+```{r}
+#functions for BA Vs H 
+
+
+H.BA.FUN.L <- function(x) { 199.5371 * x^0.152}
+
+H.BA.FUN.M <- function(x) { 183.8739 * x ^0.19183 }
+
+H.BA.FUN.H <- function(x) {168.5445 * x^0.3054}
+
+
+```
+
+
+
+  geom_function(fun = CV.H.FUN.L, n = 105, colour = "red", size = 1)+
+  geom_function(fun = CV.H.FUN.M, n = 105, colour = "forestgreen", size = 1)+
+  geom_function(fun = CV.H.FUN.H, n = 105, colour =  "deepskyblue3 ", size = 1)+
+
+```{r}
+basal.vs.heigh_plots <- f.D2H_model%>%
+  ggplot(aes(basal_area, height, colour = rainfall))+
+  geom_point(aes(shape = landform))+
+  geom_function(fun = H.BA.FUN.L, n = 105, colour = "red", size = 1)+
+  geom_function(fun = H.BA.FUN.M, n = 105, colour = "forestgreen", size = 1)+
+  geom_function(fun = H.BA.FUN.H, n = 105, colour =  "deepskyblue3 ", size = 1)+
+  ylab("height (cm)")+
+  xlab(bquote("basal area "(cm^2)))+
+  ggtitle("A")+
+  theme_cowplot()+
+  xlim(0, 1200)+
+  theme(axis.title=element_text(size=12), legend.position = "none")
+  
+
+print(basal.vs.heigh_plots)
+
+#ggsave("basal.vs.height_plots.png")
+
+```
+
+
+
+```{r}
+
+final.canopy.height.fit <- lmer(log.canopy.V ~ log.tree.H + rainfall + (1|landform), data = canopy_volume, REML = T)
+
+summary(final.canopy.height.fit)
+
+```
+
+
+### assumptions
+```{r}
+qqnorm(residuals(final.canopy.height.fit ), pch = 1, frame = FALSE)
+qqline(residuals(final.canopy.height.fit ), col = "steelblue", lwd = 2)
+
+```
+
+
+```{r}
+scatter.smooth(residuals(final.canopy.height.fit ) ~ fitted(final.canopy.height.fit ))
+```
+
+
+```{r}
+# Extract the residuals from the model
+cv.residuals <- residuals(final.canopy.height.fit )
+
+# Perform the ACF analysis
+ acf(cv.residuals)
+```
+
+
+
+```{r}
+vif(final.canopy.height.fit)
+```
+
+
+
+
+
+
+
+### fixed effect hypothesis testing 
+
+
+```{r}
+# significance of rainfall
+
+final.canopy.height.fit <- lmer(log.canopy.V ~ log.tree.H + rainfall + (1|landform), data = canopy_volume, REML = F)
+final.canopy.height.null <- lmer(log.canopy.V ~ log.tree.H + (1|landform), data = canopy_volume, REML = T)
+
+anova(final.canopy.height.null,final.canopy.height.fit,test = "LRT")
+
+```
+
+```{r}
+# significance of height
+
+final.canopy.height.fit <- lmer(log.canopy.V ~ log.tree.H + rainfall + (1|landform), data = canopy_volume, REML = F)
+final.canopy.height.null <- lmer(log.canopy.V ~ rainfall + (1|landform), data = canopy_volume, REML = T)
+
+anova(final.canopy.height.null,final.canopy.height.fit,test = "LRT")
+
+```
+
+### structural sensitivity analysis
+
+
+```{r}
+# significance of interaction effect
+
+final.canopy.height.fit <- lmer(log.canopy.V ~ log.tree.H * rainfall + (1|landform), data = canopy_volume, REML = F)
+final.canopy.height.null <- lmer(log.canopy.V ~ log.tree.H + rainfall + (1|landform), data = canopy_volume, REML = T)
+
+anova(final.canopy.height.null,final.canopy.height.fit,test = "LRT")
+
+```
+
+***do not include interactive effect***
+
+
+
+### hypothesis testing for ranodm effect
+
+```{r}
+#test if we need landform as a random effect
+
+nBoot <- 1000
+lrStat <- rep(NA, nBoot)
+final.canopy.height.null <- aov(log.canopy.V ~ log.tree.H + rainfall, data = canopy_volume) #null w/o random effect
+final.canopy.height.fit <- lmer(log.canopy.V ~ log.tree.H + rainfall + (1|landform), data = canopy_volume, REML = F) # full model
+lrObs <- 2 * logLik(final.canopy.height.fit) - 2 * logLik(final.canopy.height.null) # observed test stat
+for (iBoot in 1:nBoot)
+{
+  canopy_volume$logCanopySim <- unlist(simulate(final.canopy.height.null)) # resampled data
+  bNull <- aov(logCanopySim ~ log.tree.H + rainfall, data = canopy_volume) # null model
+  bAlt <- lmer(logCanopySim ~ log.tree.H + rainfall + (1 |landform), data = canopy_volume, REML = F) # full model
+  lrStat[iBoot] <- 2 * logLik(bAlt) - 2 * logLik(bNull) # resampled test stat
+}
+mean(lrStat > lrObs) # P-value for test of landform effect
+```
+***no evidence to include landform***
+
+## Final Canopy Volume vs Hight model
+
+
+```{r}
+final.canopy.height.aov <- aov(log.canopy.V ~ cent.log.h * rainfall , data = canopy_volume)
+
+
+```
+
+
+
+```{r}
+vif(final.canopy.height.aov, terms = 'high-order')
+```
+
+
+
+```{r}
+# Extract the residuals from the model
+cv.residuals <- residuals(final.canopy.height.aov)
+
+# Perform the ACF analysis
+ acf(cv.residuals)
+```
+
+```{r}
+final.canopy.height.aov <- aov(log.canopy.V ~ cent.log.h * rainfall , data = canopy_volume)
+
+Anova(final.canopy.height.aov, type="III") 
+
+```
+
+***non significant interaction = no change in slope***
+
+```{r}
+final.canopy.height.aov <- lm(log.canopy.V ~ log.tree.H + rainfall , data = canopy_volume)
+
+summary(final.canopy.height.aov)
+
+
+#TukeyHSD(final.canopy.height.aov, "rainfall")
+```
+
+
+
+```{r}
+
+#estimates and CIs for canopy vs height 
+
+coef(final.canopy.height.aov)
+
+confint(final.canopy.height.aov)
+
+```
+
+
+
+```{r}
+## canopy vs height CIs for low rainfall 
+
+exp( -15.4176)  # mean 
+
+exp(-17.8314296  )  # lower
+
+exp(-13.0037127) # upper 
+```
+
+```{r}
+## canopy vs height CIs for moderate rainfall 
+
+exp(-15.4176 -0.2690 )  # mean 
+
+exp(-17.8314296 -0.7146088)  # lower
+
+exp(-13.0037127 + 0.1766841 ) # upper 
+```
+
+```{r}
+## canopy vs height CIs for high rainfall 
+
+exp(-15.4176  -1.4992 )  # mean 
+
+exp(-17.8314296 -1.9384544)  # lower
+
+exp(-13.0037127 -1.0598549) # upper
+```
+
+
+
+```{r}
+
+# define Canopy area to height area function from above ANCOVA 
+
+CV.H.FUN.L <- function(x) { 0.0000002014751 * x^2.9235}
+
+CV.H.FUN.M <- function(x) { 0.0000001539558 * x ^2.9235 }
+
+CV.H.FUN.H <- function(x) {0.00000004499115 * x^2.9235}
+```
+
+
+```{r}
+canopyvsheight <- canopy_volume %>%
+  ggplot(aes(tree_height,canopy_vol, colour = rainfall)) +
+  geom_point()+
+  geom_function(fun = CV.H.FUN.L, n = 105, colour = "red", size = 1)+
+  geom_function(fun = CV.H.FUN.M, n = 105, colour = "forestgreen", size = 1)+
+  geom_function(fun = CV.H.FUN.H, n = 105, colour =  "deepskyblue3 ", size = 1)+
+  #scale_x_log10()+
+  #scale_y_log10()+
+  ylab( bquote("canopy volume " (m^3)))+
+  xlab( bquote( "height " (cm^2)))+
+  ggtitle("C")+
+  theme_cowplot()
+
+print(canopyvsheight)
+
+```
+
+
+
+## Canopy volume vs basal area (ANCOVA)
+
+
+
+```{r}
+
+final.canopy.basal.fit <- lm(log.canopy.V ~ cent.log.b * rainfall, data = canopy_volume)
+
+Anova(final.canopy.basal.fit)
+```
+
+
+*****no diff in slope*******
+
+
+```{r}
+
+final.canopy.basal.fit <- lm(log.canopy.V ~ log.basal_area + rainfall, data = canopy_volume)
+
+summary(final.canopy.basal.fit)
+```
+
+
+```{r}
+exp(-3.56277) # scaling factor low 
+
+exp(-3.56277 + 0.11422)# moderate 
+
+exp(-3.56277 + 0.20705) #high 
+
+```
+
+
+
+
+```{r}
+
+confint(final.canopy.basal.fit)
+
+```
+
+
+
+### assumptions 
+
+```{r}
+qqnorm(residuals(final.canopy.basal.fit ), pch = 1, frame = FALSE)
+qqline(residuals(final.canopy.basal.fit ), col = "steelblue", lwd = 2)
+
+```
+
+
+```{r}
+scatter.smooth(residuals(final.canopy.basal.fit ) ~ fitted(final.canopy.basal.fit ))
+```
+
+
+```{r}
+# Extract the residuals from the model
+cb.residuals <- residuals(final.canopy.basal.fit )
+
+# Perform the ACF analysis
+ acf(cb.residuals)
+```
+
+```{r}
+vif(final.canopy.basal.fit)
+```
+
+**********************testing parameterized function*********************************
+
+```{r}
+
+# define Canopy area to basal area function from above ANCOVA 
+
+CV.BA.FUN.L <- function(x) { 0.028360* x^1.14}
+
+CV.BA.FUN.M <- function(x) { 0.0317917 * x ^1.25 }
+
+CV.BA.FUN.H <- function(x) {0.03488424 * x^1.34}
+```
+
+
+  
+  
+  
+
+```{r}
+canopyvsbasal <- canopy_volume %>%
+  ggplot(aes(basal_area,canopy_vol, colour = rainfall)) +
+  geom_point()+
+  geom_function(fun = CV.BA.FUN.L, n = 105, colour = "red", size = 1)+
+  geom_function(fun = CV.BA.FUN.M, n = 105, colour = "forestgreen", size = 1)+
+  geom_function(fun = CV.BA.FUN.H, n = 105, colour =  "deepskyblue3 ", size = 1)+
+  #scale_x_log10()+
+  #scale_y_log10()+
+  ylab( bquote("canopy volume " (m^3)))+
+  xlab( bquote( "basal area " (cm^2)))+
+  ggtitle("B")+
+  theme_cowplot()
+
+print (canopyvsbasal)
+
+```
+
+
+
+
+
+
+### fixed effect hypothesis testing
+
+
+```{r}
+
+final.canopy.basal.fit <- lmer(log.canopy.V ~ cent.tree.b + rainfall + (1|landform), data = canopy_volume, REML = F)
+
+final.canopy.basal.null <- lmer(log.canopy.V ~ cent.tree.b + (1|landform), data = canopy_volume, REML = F)
+
+anova(final.canopy.basal.null,final.canopy.basal.fit,test = "LRT")
+```
+
+```{r}
+final.canopy.basal.null <- lmer(log.canopy.V ~ rainfall + (1|landform), data = canopy_volume, REML = F)
+
+anova(final.canopy.basal.null,final.canopy.basal.fit,test = "LRT")
+```
+***rainfall not significant!!***
+
+
+
+
+
+
+```{r}
+
+basalvscanopy <- canopy_volume%>%
+  ggplot( aes( basal_area, canopy_volume, colour = rainfall))+
+  geom_point(aes(shape = landform))+
+     geom_smooth(method = "lm",
+                 se = F)+
+  ylab(bquote("canopy volume " (m^3)))+
+  xlab(bquote("basal area " (cm^2)))+
+  scale_x_log10()+
+  scale_y_log10()+
+  ggtitle("B")+
+  theme_cowplot()+
+  theme(axis.title=element_text(size=12,face="bold"))+
+  theme(legend.position = "none")
+  
+
+
+ print(basalvscanopy)
+```
+
+
+
+
+
+
+
+

@@ -34,10 +34,6 @@ library(mgcv)
 
 library (glmmTMB)
 
-library(sp)
-
-library(gstat)
-
 library(ape)
 
 library(ggpmisc)
@@ -50,8 +46,7 @@ library(MASS)
 
 library(betareg)
 
-library(glmmTMB)
-
+library(smatr)
 ```
 
 
@@ -63,7 +58,7 @@ library(glmmTMB)
 
 #build data set 
 
-vessels <- read_csv("trait_data/vessel.csv")%>%
+vessels <- read_csv("input_data/trait_data/vessel.csv")%>%
   mutate(rainfalllow = ifelse (grepl ("STURT", name), "low", "moderate"),
           rainfallhigh = ifelse (grepl ("GUNDA", name), "high", "moderate"),
           landform = ifelse (grepl ("SHED", name), "shed", "acc"),
@@ -111,7 +106,7 @@ vessels <- read_csv("trait_data/vessel.csv")%>%
 
 #leaf data 
 
-total_leaves <- read_csv("trait_data/leaves/total_leaves.csv")%>%
+total_leaves <- read_csv("input_data/trait_data/leaves/total_leaves.csv")%>%
   mutate( rainfall = factor(rainfall, levels = c("low", "moderate", "high")))
 
 
@@ -152,7 +147,7 @@ summary(leaf_thickness.df)
 ```{r}
 # Wood density data
 
-total_wood <- read_csv("~/Thesis/r_studio/trait_data/wood/total_wood.csv")%>%
+total_wood <- read_csv("input_data/trait_data/wood/total_wood.csv")%>%
   mutate( rainfall = factor(rainfall, levels = c("low", "moderate", "high")))
 
 
@@ -343,6 +338,8 @@ vessel.roundness <- ggplot( f.vessels, aes(rainfall, roundess, fill = rainfall))
   theme(legend.position = "none")
 
 print(vessel.roundness)
+
+ggsave("outputs/trait/vessel.roundness.png")
 
 ```
 
@@ -726,7 +723,7 @@ d.massvsarea <- trait_SLA%>%
 
 print(d.massvsarea)
 
-#ggsave("d.massvsarea.png")
+#ggsave("outputs/traits/d.massvsarea.png")
 
 ```
 
@@ -800,7 +797,7 @@ leaf.area <- trait_SLA%>%
 
 print(leaf.area)
 
-#ggsave("leaf.area.png")
+#ggsave("outputs/trait/leaf.area.png")
 
 ```
 
@@ -854,7 +851,7 @@ leaf.thick <- leaf_thickness.df%>%
 
 print(leaf.thick)
 
-#ggsave("leaf.thick.png")
+#ggsave("output/triat/leaf.thick.png")
 ```
 
 
@@ -869,7 +866,7 @@ print(leaf.thick)
 
 
 ```{r}
-total_plots <- read_csv("plot_data/total_plots.csv")%>%
+total_plots <- read_csv("input_data/plot_data/total_plots.csv")%>%
   mutate(
    landform = as.factor(landform),
 
@@ -908,21 +905,58 @@ summary(total_wood)
   filter(!is.na(diamiter))
 ```
 
-### biomass estimates for individual trees
+
+```{r}
+#log allometric variables 
+logbasal <- basal_area%>%
+  mutate(log.height = log(height), 
+         log.basal = log(basal_area))
+```
+
+
+
+### daimeter estimates for individual trees
+
+```{r}
+mean(logbasal$log.height)
+
+mean(logbasal$log.basal)
+
+mean(logbasal$basal_area)
+```
+
+
+
+
+
+```{r}
+exp(3.38895)
+exp(5.971321)
+```
+
 
 
 ```{r}
   
- # using the accacia allometric equation from feller 1980 we will calculate biomass for each tree based on a "stem by stem" analysis.
-# see "Review of Allometric Relationships for Estimating Woody Biomass for New South Wales, the Australian Capital Territory, Victoria, Tasmania and South Australia" (page 36)
-    D2H_model <- basal_area %>%
-   group_by(tree, height, landform, plots, rainfall, subplot, sub_plot_area, subplot_density, plot_density)%>%
+#back transform basal to single stem estimate. 
+#mean centre log transformed tree metrics 
+
+    D2H_model <- logbasal %>%
+   group_by(tree, log.height, height, log.basal, landform, plots, rainfall, subplot, sub_plot_area, subplot_density, plot_density)%>%
   summarise(basal_area = sum(basal_area),.groups = "drop")%>%
-      mutate(diamiter = (sqrt(basal_area/3.14159265359))*2)
+      mutate(diamiter = (sqrt(basal_area/3.14159265359))*2,
+             log.mc.height = log.height-5.971321,
+             log.mc.basal = log.basal-3.38895)
 
 ```
 
 
+
+```{r}
+mean(D2H_model$log.mc.height)
+
+mean(D2H_model$log.mc.basal)
+```
 
 
 ### filtered 
@@ -939,11 +973,25 @@ f.h.D2H_model <- filter(f.D2H_model, height > 40)
 
 
 
+### pairwise rainfall datasets 
+
+
+```{r}
+high_mod.D2H_model <- f.D2H_model %>% filter(rainfall != 'low')
+
+high_low.D2H_model <- f.D2H_model %>% filter(rainfall != 'moderate')
+
+mod_low.D2H_model <- f.D2H_model %>% filter(rainfall != 'high' )
+```
+
+
+
+
 ### allometric data with canopy volume
 
 ```{r}
 
-allometry_total <- read_csv("allometry/allometry_total.csv")%>%
+allometry_total <- read_csv("input_data/allometry/allometry_total.csv")%>%
  mutate(
    landform = as.factor(landform),
 
@@ -968,9 +1016,7 @@ allo_basal <- allometry_total %>%
   arrange(tree)%>%
   filter(!is.na(diamiter))
 
-
 ```
-
 
 
 
@@ -988,21 +1034,37 @@ canopy_volume <- allo_basal%>%
          log.canopy.V = log(canopy_vol),
          log.basal_area = log(basal_area),
          cent.log.h = log.tree.H - 1.641818,
-         cent.log.b = log.basal_area -4.924167)%>%
+         cent.log.b = log.basal_area -4.924167,
+         #grand mean center allometric variables 
+         mc.tree_height = log.tree.H -  5.971321,   #centred on f.d2h basal area mean
+         mc.basal_area = log.basal_area -  3.38895, #centred on f.d2h basal area mean
+         mc.cv = log.canopy.V - 2.174772)%>%
   filter(!is.na(canopy_vol))%>%
   filter(!is.na(log.canopy.V))
 
-  
-
 ```
+
 
 ```{r}
 mean(canopy_volume$log.tree.H)
 
 mean(canopy_volume$log.basal_area)
 
+mean(canopy_volume$log.canopy.V)
+
+```
+```{r}
+
 ```
 
+
+```{r}
+mean(canopy_volume$mc.tree_height)
+
+mean(canopy_volume$mc.basal_area)
+
+mean(canopy_volume$mc.cv)
+```
 
 
 ```{r}
@@ -1012,6 +1074,65 @@ summary(canopy_volume)
 ```
 
 ***canopy volume is within standard estimates of mature trees from other studies "Canopy Area and Aboveground Mass of Individual Redberry Juniper"*****
+
+### pairwise data frames 
+
+```{r}
+low_high_cv <- canopy_volume %>%
+  filter(rainfall != "moderate")
+
+low_mod_cv<- canopy_volume %>%
+  filter(rainfall != "high")
+
+mod_high_cv <- canopy_volume %>%
+  filter(rainfall != "low")
+```
+
+
+
+
+
+
+b.a_graph <- f.D2H_model %>%
+  ggplot(aes(rainfall, basal_area, fill = rainfall))+
+  geom_boxplot( notch = F)+
+  scale_y_log10()+
+  ggtitle("D")+
+  ylab(bquote("basal area "(cm^2)))+
+  xlab("rainfall")+
+  theme_cowplot()+
+  theme(legend.position = "none")
+
+print(b.a_graph)
+
+
+
+## check distributions 
+
+```{r}
+f.D2H_model %>% ggplot( aes(log.mc.basal, fill = rainfall ))+
+  geom_histogram()
+
+f.D2H_model %>% ggplot( aes(log(basal_area), fill = rainfall ))+
+  geom_histogram()
+```
+
+```{r}
+f.D2H_model %>% ggplot( aes(log.mc.height, fill = rainfall ))+
+  geom_histogram()
+
+f.D2H_model %>% ggplot( aes(log(height), fill = rainfall ))+
+  geom_histogram()
+```
+
+
+```{r}
+canopy_volume %>% ggplot( aes(mc.tree_height, fill = rainfall ))+
+  geom_histogram()
+
+canopy_volume %>% ggplot( aes(log(tree_height), fill = rainfall ))+
+  geom_histogram()
+```
 
 
 ## Basal area (LMEM)
@@ -1127,97 +1248,189 @@ for (iBoot in 1:nBoot)
 }
 mean(lrStat > lrObs) # P-value for test of landform effect
 ```
+```{r}
+
+```
 
 
 ***subplot significant***
 
-##Final Basal area fit
-
-pairs(emmeans(final.height.basal.lm, ~  rainfall))
 
 ```{r}
-final.basal.fit <- lmer(log(basal_area) ~ rainfall + (1|plots/subplot) , data = f.D2H_model, control = lmerControl(optimizer ="Nelder_Mead"), REML = T) 
-
-
-summary(final.basal.fit)
-
-```
-
-#r squared 
-
-
-
-
-
-```{r}
-## estimates and CIs
-
-confint(final.basal.fit)
-
-
-```
-
-
-```{r}
-#tree basal area low
-
-exp(4.4303) #mean 
-
-exp(3.90266145) # lower
-
-exp(4.95789700) # upper
-
-```
-
-
-```{r}
-#tree basal area mod
-
-exp(4.4303 + 0.7051) #mean 
-
-exp(3.90266145 - 0.01953386) # lower
-
-exp(4.95789700 + 1.42965397) # upper
-
-```
-
-
-
-```{r}
-#tree basal area high
-
-exp(4.4303 - 0.8352) #mean 
-
-exp(3.90266145 - 1.58930898) # lower
-
-exp(4.95789700 - 0.08227804) # upper
-
-```
-
-
-
-
-```{r}
-pairs(emmeans(final.basal.fit, ~ "rainfall"))
-```
-
-
-
-
-
-```{r}
-
-b.a_graph <- f.D2H_model %>%
-  ggplot(aes(rainfall, basal_area, fill = rainfall))+
-  geom_boxplot( notch = F)+
+basal_area_graph <- f.D2H_model%>%
+  ggplot( aes( basal_area, height, fill = rainfall))+
+  geom_boxplot(notch = F)+
   scale_y_log10()+
-  ggtitle("D")+
-  ylab(bquote("basal area "(cm^2)))+
-  xlab("rainfall")+
+  ylab("height (cm)")+
+  xlab(" ")+
+  ggtitle("E")+
   theme_cowplot()+
-  theme(legend.position = "none")
+   theme(legend.position = "none")
+  
 
-print(b.a_graph)
+print(heightvsrainfall)
+```
+
+
+## Basal area to height (SMA)
+
+
+
+```{r}
+#slope test 
+
+sma.ba_h.test <- sma(log.height ~ log.basal* rainfall, data = f.D2H_model )
+
+
+
+
+summary(sma.ba_h.test)
+```
+***sig diff*** 
+
+### differences between sites slopes 
+
+***bonferoni correction alpha set at 0.0166667
+
+```{r}
+sma.ba_h.high_low <- sma(log.height ~ log.basal* rainfall, data = high_low.D2H_model )
+
+summary(sma.ba_h.high_low)
+```
+***difference in slope high_low***
+
+```{r}
+sma.ba_h.high_mod <- sma(log.height ~ log.basal* rainfall, data = high_mod.D2H_model )
+
+summary(sma.ba_h.high_low)
+```
+***high mod sig diff in slopes***
+
+
+```{r}
+sma.ba_h.mod_low <- sma(log.height ~ log.basal* rainfall, data = mod_low.D2H_model )
+
+summary(sma.ba_h.mod_low)
+```
+
+***mod low differences in slope***
+
+
+
+
+
+### elevation test
+
+```{r}
+# Difference in mean centred elevation 
+
+sma.int.BA_H<- with(f.D2H_model, method = 'SMA', elev.com(log.height, log.mc.basal, rainfall))
+
+sma.int.BA_H
+
+```
+
+
+### differences in elevation
+
+```{r}
+sma.int.ba_h.high_low<- with(high_low.D2H_model, method = 'SMA', elev.com(log.height, log.mc.basal, rainfall))
+
+
+sma.int.ba_h.high_low
+```
+
+**significant**
+
+
+```{r}
+sma.int.ba_h.high_mod<- with(high_mod.D2H_model, method = 'SMA', elev.com(log.height, log.mc.basal, rainfall))
+
+
+sma.int.ba_h.high_mod
+```
+
+**significant**
+
+```{r}
+sma.int.ba_h.mod_low<- with(mod_low.D2H_model, method = 'SMA', elev.com(log.height, log.mc.basal, rainfall))
+
+
+sma.int.ba_h.mod_low
+```
+**significant**
+
+
+
+### mean centered intercept estimates and CIs 
+
+```{r}
+exp(5.858584) #low elevation 
+
+exp(5.841859)
+
+exp(5.875309)
+
+```
+
+
+
+```{r}
+exp(5.969946) #mod elevation 
+
+exp(5.947505)
+
+exp(5.992386)
+
+```
+
+```{r}
+exp(6.224564)
+exp(6.204829)
+exp(6.244299)
+```
+
+
+
+
+### visualise functions
+
+
+
+```{r}
+# NOT mean centered
+
+sma.ba_h.test <- sma(log.height ~ log.basal * rainfall, data = f.D2H_model)
+
+
+
+summary(sma.ba_h.test)
+```
+
+
+
+
+```{r}
+# non mean centered intercepts  
+
+exp(4.861392 )
+exp(5.334735 )
+exp(5.025324 )
+```
+
+
+
+
+
+```{r}
+#functions for BA Vs H (use intercepts form non mean centered fit )
+
+
+sma.H.BA.FUN.L <- function(x) {129.2039 * x^0.2945913 }
+
+sma.H.BA.FUN.M <- function(x) {207.4178 * x ^0.2105044 }
+
+sma.H.BA.FUN.H <- function(x) {152.2196 * x^0.3535720 }
 
 
 ```
@@ -1225,272 +1438,43 @@ print(b.a_graph)
 
 
 
-
-
-## Basal area to height (LMEM)
-
-
-
 ```{r}
-#the interaction term (*) between log(basal_area) and rainfall allows the "height Vs basal areas" relationship to vary between levels of rainfall (or across sites). 
-
-final.height.basal.lm <- lmer(log(height) ~ log(basal_area) * rainfall + (1|plots/subplot), data = f.D2H_model, REML = T)
-
-summary(final.height.basal.lm)
-confint(final.basal.fit)
-
-
-```
-
-### assumptions
-```{r}
-qqnorm(residuals(final.height.basal.lm), pch = 1, frame = FALSE)
-qqline(residuals(final.height.basal.lm), col = "steelblue", lwd = 2)
-
-```
-
-
-```{r}
-scatter.smooth(residuals(final.height.basal.lm) ~ fitted(final.height.basal.lm))
-```
-
-
-
-
-
-```{r}
-vif(final.height.basal.lm)
-```
-
-
-
-```{r}
-# Extract the residuals from the model
-height.basal.residuals <- residuals(final.height.basal.lm)
-
-# Perform the ACF analysis
- acf(height.basal.residuals)
-```
-
-
-### fixed effect hypothesis testing
-
-```{r}
-# null vs fit
-
-final.height.basal.aov <- lmer(log(height) ~ log(basal_area) * rainfall + (1|landform/plots/subplot) , data = f.D2H_model, REML = F)
-final.height.null <- lmer(log(height) ~ log(basal_area) + (1|landform/plots/subplot), data = f.D2H_model, REML = F)
-
-anova(final.height.null,final.height.basal.aov,test = "LRT")
-
-```
-
-
-
-
-### hypothesis testing for random effects
-
-```{r}
-#test if we need landform given we have plots as a random effect
-
-nBoot <- 1000
-lrStat <- rep(NA, nBoot)
-final.height.basal.null <- lmer(log(height) ~ log(basal_area) * rainfall + (1|plots/subplot) , data = f.D2H_model, REML = F) #null model
-final.height.basal.aov <- lmer(log(height) ~ log(basal_area) * rainfall + (1|landform/plots/subplot) , data = f.D2H_model, REML = F) # full model
-lrObs <- 2 * logLik(final.height.basal.aov) - 2 * logLik(final.height.basal.null) # observed test stat
-for (iBoot in 1:nBoot)
-{
-  f.D2H_model$logHeightSim <- unlist(simulate(final.height.basal.null)) # resampled data
-  bNull <- lmer(logHeightSim ~ log(basal_area) * rainfall + (1 | plots/subplot), data = f.D2H_model, REML = F) # null model
-  bAlt <- lmer(logHeightSim ~ log(basal_area) * rainfall + (1 | landform/plots/subplot), data = f.D2H_model, REML = F) # full model
-  lrStat[iBoot] <- 2 * logLik(bAlt) - 2 * logLik(bNull) # resampled test stat
-}
-mean(lrStat > lrObs) # P-value for test of landform effect
-```
-
-
-```{r}
-#test if we need subplots given we have plots as a random effect
-
-nBoot <- 1000
-lrStat <- rep(NA, nBoot)
-final.height.basal.null <- lmer(log(height) ~ log(basal_area) * rainfall + (1|plots) , data = f.D2H_model, REML = F)
-final.height.basal.aov <- lmer(log(height) ~ log(basal_area) * rainfall + (1|plots/subplot) , data = f.D2H_model, REML = F) # full model
-lrObs <- 2 * logLik(final.height.basal.aov) - 2 * logLik(final.height.basal.null) # observed test stat
-for (iBoot in 1:nBoot)
-{
-  f.D2H_model$logHeightSim <- unlist(simulate(final.height.basal.null)) # resampled data
-  bNull <- lmer(logHeightSim ~ log(basal_area) * rainfall + (1 | plots), data = f.D2H_model, REML = F) # null model
-  bAlt <- lmer(logHeightSim ~ log(basal_area) * rainfall + (1 |plots/subplot), data = f.D2H_model, REML = F) # full model
-  lrStat[iBoot] <- 2 * logLik(bAlt) - 2 * logLik(bNull) # resampled test stat
-}
-mean(lrStat > lrObs) # P-value for test of plots effect
-```
-
-
-
-
-
-## Final Basal area to height model 
-
-```{r}
-final.height.basal.lm <- lmer(log(height) ~ log(basal_area) * rainfall + (1|plots/subplot) , data = f.D2H_model, REML = T)
-
-summary(final.height.basal.lm)
-```
-
-```{r}
-r.squaredGLMM(final.height.basal.lm)
-```
-
-
-
-```{r}
-anova(final.height.basal.lm)
-```
-
-
-
-
-
-```{r}
-#difference in means 
-
-pairs(emmeans(final.height.basal.lm, ~  rainfall))
-
-
-```
-
-
-
-```{r}
-
-#confidence intervals for the slopes across 
-
-confint(final.height.basal.lm)
-```
-
-5.296
-
-```{r}
-#low exponent 
-
-0.1520      # mean 
-0.133135311    # lower
-0.17097044  # upper
-
-```
-
-```{r}
-#mod exponent
-
-0.1520 + 3.983e-02      # mean 
-0.133135311 + 0.004978774  # lower
-0.17097044+ 0.07445851  # upper
-
-```
-
-
-```{r}
-#high exponent
-
-0.1520 + 0.1534           # mean
-0.133135311 + 0.128349128  # lower
-0.17097044 + 0.17821654     # upper
-
-```
-
-
-
-(Intercept)                       5.296e+00  7.468e-02  3.340e+01  70.912   <2e-16 ***
-log(basal_area)                   1.520e-01  9.667e-03  1.756e+03  15.719   <2e-16 ***
-rainfallmoderate                 -8.175e-02  1.214e-01  6.731e+01  -0.673   0.5031    
-rainfallhigh                     -1.688e-01  1.018e-01  2.901e+01  -1.659   0.1079   
-
-
-```{r}
-# CIs for the low rainfall intercept 
-
-exp(5.296) # mean 
-
-exp(5.154632201) #lower 
-
-exp(5.43727241) #upper
-
-```
-
-
-
-```{r}
-# CIs for the mod rainfall intercept 
-
-exp(5.296 -0.08175)          # mean 
-
-exp(5.154632201 - 0.312428417) #lower 
-
-exp(5.43727241 + 0.14966995) #upper
-
-```
-
-  -0.361280337 0.02368607
-
-```{r}
-# CIs for the high rainfall intercept 
-
-exp(5.296  -0.1688) # mean 
-
-exp(5.154632201  - 0.361280337) #lower 
-
-exp(5.43727241  + 0.02368607) #upper
-
-```
-
-
-
-
-```{r}
-#functions for BA Vs H 
-
-
-H.BA.FUN.L <- function(x) { 199.5371 * x^0.152}
-
-H.BA.FUN.M <- function(x) { 183.8739 * x ^0.19183 }
-
-H.BA.FUN.H <- function(x) {168.5445 * x^0.3054}
-
-
-```
-
-
-
-  geom_function(fun = CV.H.FUN.L, n = 105, colour = "red", size = 1)+
-  geom_function(fun = CV.H.FUN.M, n = 105, colour = "forestgreen", size = 1)+
-  geom_function(fun = CV.H.FUN.H, n = 105, colour =  "deepskyblue3 ", size = 1)+
-
-```{r}
-basal.vs.heigh_plots <- f.D2H_model%>%
+#mean centered plot 
+sma.basal.vs.heigh_plots <- f.D2H_model%>%
   ggplot(aes(basal_area, height, colour = rainfall))+
-  geom_point(aes(shape = landform))+
-  geom_function(fun = H.BA.FUN.L, n = 105, colour = "red", size = 1)+
-  geom_function(fun = H.BA.FUN.M, n = 105, colour = "forestgreen", size = 1)+
-  geom_function(fun = H.BA.FUN.H, n = 105, colour =  "deepskyblue3 ", size = 1)+
+  geom_point()+
+  geom_function(fun = sma.H.BA.FUN.L, n = 105, colour = "coral2", size = 1)+
+  geom_function(fun = sma.H.BA.FUN.M, n = 105, colour = "forestgreen", size = 1)+
+  geom_function(fun = sma.H.BA.FUN.H, n = 105, colour =  "deepskyblue3 ", size = 1)+
   ylab("height (cm)")+
   xlab(bquote("basal area "(cm^2)))+
+  geom_vline(xintercept=29, colour = "goldenrod1", size = 1)+
+  xlim(0,1250)+
   ggtitle("A")+
   theme_cowplot()+
-  xlim(0, 1200)+
   theme(axis.title=element_text(size=12), legend.position = "none")
   
 
-print(basal.vs.heigh_plots)
+print(sma.basal.vs.heigh_plots)
 
-#ggsave("basal.vs.height_plots.png")
+ggsave("outputs/tree_sturcture/sma.basal.vs.heigh_plots.png")
+```
+
+
+
+
+
+
+
+```{r}
+#functions for BA Vs H not mean centered 
+
 
 ```
 
 
 
-glmmTMB(height ~ rainfall + (1|plots/subplot), data = f.D2H_model,family = gaussian(link = "identity"))
+
 ## Tree height (GLMM)
 
 ```{r}
@@ -1710,203 +1694,106 @@ print(heightvsrainfall)
 
 
 
-
-
-
-
-
-## Canopy volume vs height (ANCOVA)
-
-
+## Canopy volume vs basal area (SMA)
 
 ```{r}
+sma.ba_CV.test <- sma(log.canopy.V ~ mc.basal_area * rainfall, data=canopy_volume)
 
-final.canopy.height.fit <- lmer(log.canopy.V ~ log.tree.H + rainfall + (1|landform), data = canopy_volume, REML = T)
 
-summary(final.canopy.height.fit)
-
+summary(sma.ba_CV.test)
 ```
+***no difference in slope***
 
-
-### assumptions
 ```{r}
-qqnorm(residuals(final.canopy.height.fit ), pch = 1, frame = FALSE)
-qqline(residuals(final.canopy.height.fit ), col = "steelblue", lwd = 2)
+ba_cv<- sma.ba_CV.test <- sma(log.canopy.V ~ mc.basal_area, data=canopy_volume)
 
+summary(ba_cv)
 ```
 
 
 ```{r}
-scatter.smooth(residuals(final.canopy.height.fit ) ~ fitted(final.canopy.height.fit ))
-```
+exp(0.2260996700) #mean centred int 
+exp(-0.0008332903)
+exp(0.4530326303)
 
-
-```{r}
-# Extract the residuals from the model
-cv.residuals <- residuals(final.canopy.height.fit )
-
-# Perform the ACF analysis
- acf(cv.residuals)
 ```
 
 
 
+### elevation test 
+
 ```{r}
-vif(final.canopy.height.fit)
+# Difference in mean centred elevation 
+
+sma.int.ba_CV<- with(canopy_volume, method = 'SMA', elev.com(log.canopy.V, mc.basal_area, rainfall))
+
+sma.int.ba_CV
+
 ```
 
 
 
 
+### transformed intercepts 
 
-
-
-### fixed effect hypothesis testing 
 
 
 ```{r}
-# significance of rainfall
+ 
+#low rainfall        
 
-final.canopy.height.fit <- lmer(log.canopy.V ~ log.tree.H + rainfall + (1|landform), data = canopy_volume, REML = F)
-final.canopy.height.null <- lmer(log.canopy.V ~ log.tree.H + (1|landform), data = canopy_volume, REML = T)
+exp(0.01723195) #mean 
 
-anova(final.canopy.height.null,final.canopy.height.fit,test = "LRT")
+exp(-0.37787930) #lower
+
+exp(0.4123432) #upper 
 
 ```
 
+
 ```{r}
-# significance of height
 
-final.canopy.height.fit <- lmer(log.canopy.V ~ log.tree.H + rainfall + (1|landform), data = canopy_volume, REML = F)
-final.canopy.height.null <- lmer(log.canopy.V ~ rainfall + (1|landform), data = canopy_volume, REML = T)
+#moderate rainfall
 
-anova(final.canopy.height.null,final.canopy.height.fit,test = "LRT")
+exp(0.01195972) #mean
+
+exp(-0.32101797) #lower
+
+exp(0.3449374) #upper
 
 ```
 
-### structural sensitivity analysis
-
 
 ```{r}
-# significance of interaction effect
+#high rainfall 
 
-final.canopy.height.fit <- lmer(log.canopy.V ~ log.tree.H * rainfall + (1|landform), data = canopy_volume, REML = F)
-final.canopy.height.null <- lmer(log.canopy.V ~ log.tree.H + rainfall + (1|landform), data = canopy_volume, REML = T)
+exp(0.33718698)#mean
 
-anova(final.canopy.height.null,final.canopy.height.fit,test = "LRT")
+exp(0.02498298) #upper 
 
-```
-
-***do not include interactive effect***
-
-
-
-### hypothesis testing for ranodm effect
-
-```{r}
-#test if we need landform as a random effect
-
-nBoot <- 1000
-lrStat <- rep(NA, nBoot)
-final.canopy.height.null <- aov(log.canopy.V ~ log.tree.H + rainfall, data = canopy_volume) #null w/o random effect
-final.canopy.height.fit <- lmer(log.canopy.V ~ log.tree.H + rainfall + (1|landform), data = canopy_volume, REML = F) # full model
-lrObs <- 2 * logLik(final.canopy.height.fit) - 2 * logLik(final.canopy.height.null) # observed test stat
-for (iBoot in 1:nBoot)
-{
-  canopy_volume$logCanopySim <- unlist(simulate(final.canopy.height.null)) # resampled data
-  bNull <- aov(logCanopySim ~ log.tree.H + rainfall, data = canopy_volume) # null model
-  bAlt <- lmer(logCanopySim ~ log.tree.H + rainfall + (1 |landform), data = canopy_volume, REML = F) # full model
-  lrStat[iBoot] <- 2 * logLik(bAlt) - 2 * logLik(bNull) # resampled test stat
-}
-mean(lrStat > lrObs) # P-value for test of landform effect
-```
-***no evidence to include landform***
-
-## Final Canopy Volume vs Hight model
-
-
-```{r}
-final.canopy.height.aov <- aov(log.canopy.V ~ cent.log.h * rainfall , data = canopy_volume)
+exp(0.6493910) #lower
 
 
 ```
 
 
 
+### CV to BA functions 
+
 ```{r}
-vif(final.canopy.height.aov, terms = 'high-order')
+sma.ba_CV.test <- sma(log.canopy.V ~ log.basal_area * rainfall, data=canopy_volume)
+
+
+summary(sma.ba_CV.test)
 ```
 
 
 
 ```{r}
-# Extract the residuals from the model
-cv.residuals <- residuals(final.canopy.height.aov)
+exp(-3.743134 )
+exp(-4.825868 )
+exp(-4.228895 )
 
-# Perform the ACF analysis
- acf(cv.residuals)
-```
-
-```{r}
-final.canopy.height.aov <- aov(log.canopy.V ~ cent.log.h * rainfall , data = canopy_volume)
-
-Anova(final.canopy.height.aov, type="III") 
-
-```
-
-***non significant interaction = no change in slope***
-
-```{r}
-final.canopy.height.aov <- lm(log.canopy.V ~ log.tree.H + rainfall , data = canopy_volume)
-
-summary(final.canopy.height.aov)
-
-
-#TukeyHSD(final.canopy.height.aov, "rainfall")
-```
-
-
-
-```{r}
-
-#estimates and CIs for canopy vs height 
-
-coef(final.canopy.height.aov)
-
-confint(final.canopy.height.aov)
-
-```
-
-
-
-```{r}
-## canopy vs height CIs for low rainfall 
-
-exp( -15.4176)  # mean 
-
-exp(-17.8314296  )  # lower
-
-exp(-13.0037127) # upper 
-```
-
-```{r}
-## canopy vs height CIs for moderate rainfall 
-
-exp(-15.4176 -0.2690 )  # mean 
-
-exp(-17.8314296 -0.7146088)  # lower
-
-exp(-13.0037127 + 0.1766841 ) # upper 
-```
-
-```{r}
-## canopy vs height CIs for high rainfall 
-
-exp(-15.4176  -1.4992 )  # mean 
-
-exp(-17.8314296 -1.9384544)  # lower
-
-exp(-13.0037127 -1.0598549) # upper
 ```
 
 
@@ -1915,190 +1802,203 @@ exp(-13.0037127 -1.0598549) # upper
 
 # define Canopy area to height area function from above ANCOVA 
 
-CV.H.FUN.L <- function(x) { 0.0000002014751 * x^2.9235}
+CV.BA.FUN.L <- function(x) {0.02367977 * x^1.177229}
 
-CV.H.FUN.M <- function(x) { 0.0000001539558 * x ^2.9235 }
+CV.BA.FUN.M <- function(x) {0.00801959 * x ^1.388406}
 
-CV.H.FUN.H <- function(x) {0.00000004499115 * x^2.9235}
+CV.BA.FUN.H <- function(x) {0.01456848 * x^1.343042}
 ```
 
 
+### visualise CV.BA SMA
+
+
+
 ```{r}
-canopyvsheight <- canopy_volume %>%
-  ggplot(aes(tree_height,canopy_vol, colour = rainfall)) +
+sma_CV_BA <- canopy_volume%>%
+  ggplot(aes(basal_area, canopy_vol, colour = rainfall))+
   geom_point()+
-  geom_function(fun = CV.H.FUN.L, n = 105, colour = "red", size = 1)+
-  geom_function(fun = CV.H.FUN.M, n = 105, colour = "forestgreen", size = 1)+
-  geom_function(fun = CV.H.FUN.H, n = 105, colour =  "deepskyblue3 ", size = 1)+
-  #scale_x_log10()+
-  #scale_y_log10()+
-  ylab( bquote("canopy volume " (m^3)))+
-  xlab( bquote( "height " (cm^2)))+
-  ggtitle("C")+
-  theme_cowplot()
-
-print(canopyvsheight)
-
-```
-
-
-
-## Canopy volume vs basal area (ANCOVA)
-
-
-
-```{r}
-
-final.canopy.basal.fit <- lm(log.canopy.V ~ cent.log.b * rainfall, data = canopy_volume)
-
-Anova(final.canopy.basal.fit)
-```
-
-
-*****no diff in slope*******
-
-
-```{r}
-
-final.canopy.basal.fit <- lm(log.canopy.V ~ log.basal_area + rainfall, data = canopy_volume)
-
-summary(final.canopy.basal.fit)
-```
-```{r}
-exp(-3.56277) # scaling factor low 
-
-exp(-3.56277 + 0.11422)# moderate 
-
-exp(-3.56277 + 0.20705) #high 
-
-```
-
-
-
-
-```{r}
-
-confint(final.canopy.basal.fit)
-
-```
-
-
-
-### assumptions 
-
-```{r}
-qqnorm(residuals(final.canopy.basal.fit ), pch = 1, frame = FALSE)
-qqline(residuals(final.canopy.basal.fit ), col = "steelblue", lwd = 2)
-
-```
-
-
-```{r}
-scatter.smooth(residuals(final.canopy.basal.fit ) ~ fitted(final.canopy.basal.fit ))
-```
-
-
-```{r}
-# Extract the residuals from the model
-cb.residuals <- residuals(final.canopy.basal.fit )
-
-# Perform the ACF analysis
- acf(cb.residuals)
-```
-
-```{r}
-vif(final.canopy.basal.fit)
-```
-
-**********************testing parameterized function*********************************
-
-```{r}
-
-# define Canopy area to basal area function from above ANCOVA 
-
-CV.BA.FUN.L <- function(x) { 0.028360* x^1.14}
-
-CV.BA.FUN.M <- function(x) { 0.0317917 * x ^1.14 }
-
-CV.BA.FUN.H <- function(x) {0.03488424 * x^1.14}
-```
-
-
-  
-  
-  
-
-```{r}
-canopyvsbasal <- canopy_volume %>%
-  ggplot(aes(basal_area,canopy_vol, colour = rainfall)) +
-  geom_point()+
-  geom_function(fun = CV.BA.FUN.L, n = 105, colour = "red", size = 1)+
+  geom_function(fun = CV.BA.FUN.L, n = 105, colour = "coral2", size = 1)+
   geom_function(fun = CV.BA.FUN.M, n = 105, colour = "forestgreen", size = 1)+
   geom_function(fun = CV.BA.FUN.H, n = 105, colour =  "deepskyblue3 ", size = 1)+
-  #scale_x_log10()+
-  #scale_y_log10()+
-  ylab( bquote("canopy volume " (m^3)))+
-  xlab( bquote( "basal area " (cm^2)))+
-  ggtitle("B")+
-  theme_cowplot()
-
-print (canopyvsbasal)
-
-```
-
-
-
-
-
-
-### fixed effect hypothesis testing
-
-
-```{r}
-
-final.canopy.basal.fit <- lmer(log.canopy.V ~ cent.tree.b + rainfall + (1|landform), data = canopy_volume, REML = F)
-
-final.canopy.basal.null <- lmer(log.canopy.V ~ cent.tree.b + (1|landform), data = canopy_volume, REML = F)
-
-anova(final.canopy.basal.null,final.canopy.basal.fit,test = "LRT")
-```
-
-```{r}
-final.canopy.basal.null <- lmer(log.canopy.V ~ rainfall + (1|landform), data = canopy_volume, REML = F)
-
-anova(final.canopy.basal.null,final.canopy.basal.fit,test = "LRT")
-```
-***rainfall not significant!!***
-
-
-
-
-
-
-```{r}
-
-basalvscanopy <- canopy_volume%>%
-  ggplot( aes( basal_area, canopy_volume, colour = rainfall))+
-  geom_point(aes(shape = landform))+
-     geom_smooth(method = "lm",
-                 se = F)+
   ylab(bquote("canopy volume " (m^3)))+
-  xlab(bquote("basal area " (cm^2)))+
-  scale_x_log10()+
-  scale_y_log10()+
+  xlab(bquote("basal area "(cm^2)))+
+  geom_vline(xintercept=29, colour = "goldenrod1", size = 1)+
   ggtitle("B")+
   theme_cowplot()+
-  theme(axis.title=element_text(size=12,face="bold"))+
-  theme(legend.position = "none")
+  theme(axis.title=element_text(size=12), legend.position = "none")
   
 
+print(sma_CV_BA)
 
- print(basalvscanopy)
+#ggsave("outputs/tree_sturcture/sma_CV_BA.png")
 ```
 
 
 
+## Canopy volume vs height (SMA)
 
+```{r}
+sma.CV_h.test <- sma(mc.cv ~ mc.tree_height * rainfall, data=canopy_volume)
+
+
+summary(sma.CV_h.test)
+```
+### differences in slope 
+
+
+
+```{r}
+sma.int.CV_H <- sma(log.canopy.V ~ mc.tree_height * rainfall, data=low_high_cv)
+
+summary(sma.int.CV_H)
+```
+
+
+***not significant ***
+
+
+
+
+```{r}
+sma.int.CV_H <- sma(log.canopy.V ~ mc.tree_height * rainfall, data=low_mod_cv)
+
+summary(sma.int.CV_H)
+```
+
+***not significant***
+
+```{r}
+sma.int.CV_H <- sma(log.canopy.V ~ mc.tree_height * rainfall, data= mod_high_cv)
+
+summary(sma.int.CV_H)
+```
+***significant ***
+
+### elevation test 
+
+```{r}
+# Difference in mean centred elevation 
+
+sma.int.H_CV<- with(canopy_volume, method = 'SMA', elev.com(log.canopy.V, mc.tree_height, rainfall))
+
+sma.int.H_CV
+
+```
+
+```{r}
+#low mean centred intercept
+
+exp(2.0381954) #mean 
+exp(1.6670952) #lower
+exp(2.4092957) #upper
+```
+
+
+```{r}
+#moderate rainfall 
+
+exp(1.4158239 ) #mean 
+exp(1.1540597) #lower
+exp(1.6775880) #upper
+```
+
+
+```{r}
+# high rainfall 
+
+exp(0.2163242) #mean 
+exp(-0.1875999) #lower
+exp(0.6202482) #upper
+```
+
+
+
+### differences in elevation 
+
+
+```{r}
+# Difference in mean centred elevation 
+
+sma.int.H_CV<- with(low_high_cv, method = 'SMA', elev.com(log.canopy.V, mc.tree_height, rainfall))
+
+sma.int.H_CV
+
+```
+
+```{r}
+# Difference in mean centred elevation 
+
+sma.int.H_CV<- with(low_mod_cv, method = 'SMA', elev.com(log.canopy.V, mc.tree_height, rainfall))
+
+sma.int.H_CV
+
+```
+
+
+```{r}
+# Difference in mean centred elevation 
+
+sma.int.H_CV<- with(mod_high_cv, method = 'SMA', elev.com(log.canopy.V, mc.tree_height, rainfall))
+
+sma.int.H_CV
+
+```
+
+
+### visualise CV to H ratio
+```{r}
+sma.CV_h.test <- sma(log.canopy.V ~ log.tree.H * rainfall, data=canopy_volume)
+
+
+summary(sma.CV_h.test)
+```
+```{r}
+
+exp(-25.19155)
+exp(-25.00033)
+exp(-18.55485)
+
+```
+
+
+```{r}
+
+
+
+CV.H.FUN.L <- function(x) {1.146697e-11 * x^4.559875}
+
+CV.H.FUN.M <- function(x) { 1.388336e-11 * x^4.389392}
+
+CV.H.FUN.H <- function(x) {8.74442e-09 * x^3.182709}
+```
+
+392
+
+```{r}
+sma.CV.H <- canopy_volume%>%
+  ggplot(aes(tree_height, canopy_vol,colour = rainfall))+
+  geom_point()+
+  geom_function(fun = CV.H.FUN.L, n = 105, colour = "coral2", size = 1)+
+  geom_function(fun = CV.H.FUN.M, n = 105, colour = "forestgreen", size = 1)+
+  geom_function(fun = CV.H.FUN.H, n = 105, colour =  "deepskyblue3 ", size = 1)+
+  ylab(bquote("canopy volume " (m^3)))+
+  xlab(bquote("height "(cm^2)))+
+  geom_vline(xintercept=392., colour = "goldenrod1", size = 1)+
+  ggtitle("C")+
+  ylim(0,25)+
+  theme_cowplot()+
+  theme(axis.title=element_text(size=12), legend.position = "none")
+  
+
+print(sma.CV.H)
+
+ggsave("/outputs/tree_stucture/sma.CV.H.png")
+```
+
+```{r}
+getwd()
+```
 
 
 # PLOT LEVEL METRICS 
@@ -2158,6 +2058,7 @@ final.plot.basal.fit <- lmer(logbasal.m2 ~ rainfall + (1|landform/plots), data =
 summary(final.plot.basal.fit)
 
 ```
+
 
 
 
@@ -2900,7 +2801,7 @@ plot_D2h%>%
 
 ```{r}
 library(readr)
-noco_deadvalive <- read_csv("rainfall_data/noco_deadvalive.csv")
+noco_deadvalive <- read_csv("input_data/rainfall_data/noco_deadvalive.csv")
 
 ```
 
@@ -2933,7 +2834,7 @@ summary(noco_tree)
 
 ## rainfall data 
 ```{r}
-rainfall_history <- read_csv("rainfall_data/rainfall_history.csv")
+rainfall_history <- read_csv("input_data/rainfall_data/rainfall_history.csv")
 
 
 an.rainfall <- rainfall_history%>%
@@ -3018,7 +2919,7 @@ dead_vs_alive <- noco_tree%>%
 
  
 print(dead_vs_alive)    
-#ggsave("dead_vs_alive.png")
+#ggsave("outputs/dieback/dead_vs_alive.png")
 ```
 ### plot chirps data
 
@@ -3034,7 +2935,7 @@ rainfallTS<- f.an.rainfall%>%
   
   
 print(rainfallTS) 
-#ggsave("rainfallTS.png")
+#ggsave("outputs/dieback/rainfallTS.png")
 
 ```
 
@@ -3049,7 +2950,7 @@ print(rainfallTS)
 plot_grid(vessel.roundness, xylem_area, wood.density, d.massvsarea, leaf.area, nrows =3, ncol=2, rel_widths = c(1,1))
 
 
-ggsave("trait_comp.png", width = 12, height =10)
+ggsave("outputs/trait/trait_comp.png", width = 12, height =10)
 
 ```
 
@@ -3060,10 +2961,10 @@ ggsave("trait_comp.png", width = 12, height =10)
 
 ```{r}
 
-plot_grid(basal.vs.heigh_plots, canopyvsbasal, canopyvsheight, b.a_graph, heightvsrainfall, nrows = 2, ncol = 2, rel_widths = c(1,1))
+plot_grid(sma.basal.vs.heigh_plots, sma_CV_BA, sma.CV.H, basal_area_graph, heightvsrainfall, nrows = 2, ncol = 2, rel_widths = c(1,1))
 
 
-ggsave("structral_comp.png", width = 10, height = 10)
+ggsave("outputs/tree_sturcture/structral_comp.png", width = 10, height = 10)
 ```
 
 
@@ -3075,7 +2976,7 @@ ggsave("structral_comp.png", width = 10, height = 10)
 plot_grid(final.tree.density, stands_basal, stand_height, nrows = 2, ncol = 2, rel_widths = c(1,1))
 
 
-ggsave("stand_comp.png", width = 12, height = 10)
+ggsave("outputs/stand/stand_comp.png", width = 12, height = 10)
 
 ```
 
@@ -3085,7 +2986,7 @@ ggsave("stand_comp.png", width = 12, height = 10)
 ```{r}
 plot_grid(dead_vs_alive, rainfallTS, nrows = 2, ncol = 1, rel_widths = c(1,1))
 
-ggsave("dieoff_comp.png", width = 10, height = 6)
+ggsave("outputs/dieback/dieoff_comp.png", width = 10, height = 6)
 ```
 
 
