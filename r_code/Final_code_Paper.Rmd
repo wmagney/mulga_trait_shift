@@ -20,8 +20,6 @@ library(readr)
 
 library(nlme)
 
-library(ggpmisc)
-
 library(cowplot)
 
 library(car)
@@ -36,7 +34,7 @@ library (glmmTMB)
 
 library(ape)
 
-library(ggpmisc)
+#library(ggpmisc)
 
 library(multcomp)
 
@@ -1258,17 +1256,17 @@ mean(lrStat > lrObs) # P-value for test of landform effect
 
 ```{r}
 basal_area_graph <- f.D2H_model%>%
-  ggplot( aes( basal_area, height, fill = rainfall))+
-  geom_boxplot(notch = F)+
+  ggplot( aes(rainfall, basal_area, fill = rainfall))+
+  geom_boxplot()+
   scale_y_log10()+
-  ylab("height (cm)")+
+  ylab("basal area (cm)")+
   xlab(" ")+
   ggtitle("E")+
   theme_cowplot()+
    theme(legend.position = "none")
   
 
-print(heightvsrainfall)
+print(basal_area_graph)
 ```
 
 
@@ -2856,7 +2854,7 @@ summary(an.rainfall)
 
 ### Die off model 
 ```{r}
-death.basal<- t.test(log.basal ~ status, mu = 0, data = noco_tree, var.equal = F, alt = "two.sided", paired = F)
+death.basal<- t.test(log.basal ~ status, mu = 0, data = noco_tree, var.equal = F, alt = "two.sided")
 
 
 print(death.basal)
